@@ -5,6 +5,8 @@ CREATE TABLE tv_shows (
 	title VARCHAR(255) NOT NULL,
 	description TEXT DEFAULT NULL,
 	thumbnail VARCHAR(255) DEFAULT NULL,
+	thumbnail_width INT NOT NULL DEFAULT 0,
+	thumnail_height INT NOT NULL DEFAULT 0,
 	last_played_episode INT DEFAULT NULL,
 	verified TINYINT NOT NULL DEFAULT 0,
 	enabled TINYINT NOT NULL DEFAULT 0,
@@ -24,6 +26,7 @@ CREATE TABLE tv_episodes (
 	description TEXT DEFAULT NULL,
 	needs_update TINYINT NOT NULL DEFAULT 0,
 	last_updated DATETIME DEFAULT NULL,
+	transcoded TINYINT NOT NULL DEFAULT 0,
 	PRIMARY KEY (id)
 );
 

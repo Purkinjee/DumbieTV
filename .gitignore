@@ -1,5 +1,7 @@
 # Configuration File
 config.py
+lib/old
+scripts/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
