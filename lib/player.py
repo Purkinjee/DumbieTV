@@ -59,23 +59,23 @@ class PlayerThread(threading.Thread):
 					print(f"Thread was told to wait for {seconds_to_wait}s")
 					time.sleep(seconds_to_wait)
 
-			stats = {
+			self.completed_queue.put({
 				'id': to_play['id'],
 				'start_time': datetime.now()
-			}
-				
-			#self._ffmpeg_process = subprocess.Popen(ffmpeg_params, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-			self._ffmpeg_process = subprocess.Popen(ffmpeg_params)
+			})
+			
+			print(f"Playing {to_play['path']}")
+			self._ffmpeg_process = subprocess.Popen(ffmpeg_params, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+			#self._ffmpeg_process = subprocess.Popen(ffmpeg_params)
 			while self._ffmpeg_process.poll() is None:
 				time.sleep(1)
 
-			print(to_play['path'])
-			print(' '.join(ffmpeg_params))
-			stats['end_time'] = datetime.now()
-
 			self._ffmpeg_process = None
 			if self._keep_listening:
-				self.completed_queue.put(stats)
+				self.completed_queue.put({
+					'id': to_play['id'],
+					'end_time': datetime.now()
+				})
 		
 	def stop(self):
 		self._keep_listening = False
@@ -164,165 +164,18 @@ class Player:
 		while True:
 			try:
 				completed = completed_queue.get(block=False)
-				print("Video Complete")
-				print(completed)
-				q = "UPDATE schedule SET actual_start_time = %s, actual_end_time = %s, completed = 1 WHERE id = %s"
-				cur.execute(q, (
-					completed['start_time'],
-					completed['end_time'],
-					completed['id']
-				))
+				if completed.get('start_time') is not None:
+					q = "UPDATE schedule SET actual_start_time = %s, completed = 0 WHERE id = %s"
+					cur.execute(q, (completed['start_time'], completed['id']))
+				
+				if completed.get('end_time') is not None:
+					q = "UPDATE schedule SET actual_end_time = %s, completed = 1 WHERE id = %s"
+					cur.execute(q, (
+						completed['end_time'],
+						completed['id']
+					))
 				self._db.commit()
 
 			except queue.Empty:
 				cur.close()
 				return
-
-	def play_old2(self):
-
-		while True:
-			cur = self._db.cursor(dictionary=True)
-			q = "SELECT * FROM schedule WHERE start_time <= NOW() AND end_time > NOW() ORDER BY start_time LIMIT 1"
-			cur.execute(q)
-			starting_schedule = cur.fetchone()
-
-			if not starting_schedule:
-				q = "SELECT * FROM schedule WHERE start_time >= NOW() ORDER BY start_time LIMIT 1"
-				cur.execute(q)
-				next_episode = cur.fetchone()
-
-				if not next_episode:
-					print("No future schedule exists. Exiting")
-					break
-				
-				time_until_next = (next_episode['start_time'] - datetime.now()).seconds
-				print(f"Nothing to play. Sleeping for {time_until_next} seconds")
-				time.sleep(time_until_next)
-				continue
-			
-			if starting_schedule['start_time'].hour >= 4:
-				end_time = datetime.combine(datetime.now().date() + timedelta(days=1), dttime(4))
-			else:
-				end_time = datetime.combine(datetime.now().date(), dttime(4))
-
-			q = "SELECT * FROM schedule WHERE start_time >= %s AND end_time <= %s ORDER BY start_time"
-			cur.execute(q, (starting_schedule['start_time'], end_time))
-			todays_schedule = cur.fetchall()
-
-			ffmpeg_params = ['ffmpeg', '-re']
-
-			if todays_schedule[0]['start_time'] < datetime.now():
-				delay = (datetime.now() - todays_schedule[0]['start_time']).seconds
-				if delay > 0:
-					ffmpeg_params += ['-ss', str(delay)]
-
-			ffmpeg_params += ['-f', 'concat', '-safe', '0']
-			playlist_file = os.path.join(config.TRANSCODED_VIDEO_LOCATION, datetime.now().strftime("%Y%m%d.txt"))
-			if os.path.exists(playlist_file):
-				os.remove(playlist_file)
-
-			with open(playlist_file, 'w+') as f:
-				for video in todays_schedule:
-					transcoded_video_file = os.path.join(config.TRANSCODED_VIDEO_LOCATION, 'transcoded/', f"{video['tv_episode_id']}.mp4")
-					if not os.path.exists(transcoded_video_file):
-						print(f"Cannot find video!!! {transcoded_video_file}")
-						continue
-					f.write(f"file '{transcoded_video_file}'\n")
-			
-			ffmpeg_params += [
-				#'-hwaccel', 'cuda',
-				#'-hwaccel_output_format', 'cuda',
-				'-i', playlist_file,
-				#'-c:v', 'h264_nvenc',
-				'-c:v', 'copy',
-				'-c:a', 'aac',
-				'-tune', 'zerolatency',
-				'-ar', '44100',
-				'-b:a', '256k',
-				'-ac', '1',
-				'-f', 'flv',
-				config.RTMP_POST
-			]
-
-			cur.close()
-			#process = subprocess.Popen(ffmpeg_params, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-			process = subprocess.Popen(ffmpeg_params, stderr=subprocess.STDOUT)
-			return_code = process.wait()
-
-
-	def play_old(self):
-		cur = self._db.cursor(dictionary=True)
-
-		q = "SELECT * FROM schedule WHERE start_time <= NOW() AND end_time > NOW() ORDER BY start_time LIMIT 1"
-		cur.execute(q)
-		starting_schedule = cur.fetchone()
-
-		if not starting_schedule:
-			q = "SELECT * FROM schedule WHERE start_time >= NOW() ORDER BY start_time LIMIT 1"
-			cur.execute(q)
-			starting_schedule = cur.fetchone()
-
-		if not starting_schedule:
-			print("Nothing to play")
-			return
-		
-		offset = None
-		if starting_schedule['start_time'] < datetime.now():
-			offset = (datetime.now() - starting_schedule['start_time']).seconds
-		currently_streaming = starting_schedule
-		while True:
-			time_until_start = (currently_streaming['start_time'] - datetime.now()).seconds
-			
-			while time_until_start > 5 and currently_streaming['start_time'] > datetime.now():
-				print("Not time for next scheduled video yet. Waiting...")
-				time.sleep(time_until_start / 2)
-				time_until_start = (currently_streaming['start_time'] - datetime.now()).seconds
-			
-			self._stream_scheduled_video(currently_streaming['id'], offset)
-			q = "SELECT * FROM schedule WHERE start_time > %s AND completed = 0 ORDER BY start_time LIMIT 1"
-			cur.execute(q, (currently_streaming['start_time'], ))
-			currently_streaming = cur.fetchone()
-			offset = None
-
-			if not currently_streaming:
-				print("Nothing else on schedule to stream")
-				break
-
-		cur.close()
-
-	def _stream_scheduled_video(self, schedule_id, offset=None):
-		cur = self._db.cursor(dictionary=True)
-
-		q = "SELECT schedule.id, schedule.tv_episode_id, schedule.actual_start_time, tv_episodes.path FROM schedule LEFT JOIN tv_episodes ON schedule.tv_episode_id = tv_episodes.id  WHERE schedule.id = %s"
-		cur.execute(q, (schedule_id, ))
-		res = cur.fetchone()
-
-		if res['actual_start_time'] is None:
-			q = "UPDATE schedule SET actual_start_time = %s WHERE id = %s"
-			cur.execute(q, (datetime.now(), res['id']))
-			self._db.commit()
-
-		ffmpeg_params = ['ffmpeg']
-		if offset is not None:
-			ffmpeg_params += ['-ss', str(offset)]
-
-		ffmpeg_params += [
-			'-re',
-			'-i', res['path'],
-			'-c:v', 'copy',
-			'-c:a', 'aac',
-			'-ar', '44100',
-			'-ac', '1',
-			'-f', 'flv',
-			config.RTMP_POST
-		]
-
-		#process = subprocess.Popen(ffmpeg_params, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-		process = subprocess.Popen(ffmpeg_params, stderr=subprocess.STDOUT)
-		return_code = process.wait()
-
-		q = "UPDATE schedule SET actual_end_time = %s, completed = 1 WHERE id = %s"
-		cur.execute(q, (datetime.now(), schedule_id))
-		self._db.commit()
-
-		cur.close()

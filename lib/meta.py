@@ -127,7 +127,6 @@ class TVScanner:
 					cur.execute(q, (full_path, ))
 					res = cur.fetchone()
 					if res:
-						#print(f"{full_path} exists in DB, skipping...")
 						continue
 
 					file_size = os.path.getsize(full_path) / (1024*1024)
