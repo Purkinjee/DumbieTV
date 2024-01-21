@@ -1,6 +1,6 @@
 # Configuration File
 config.py
-lib/old
+lib/old/
 scripts/
 
 # Byte-compiled / optimized / DLL files
