@@ -24,6 +24,11 @@ if __name__ == "__main__":
 		help="Build xmltv file when done with scheduling",
 		action="store_true"
 	)
+	parser.add_argument(
+		"--adjust-times",
+		help="Adjust future listings based off actual end times of shows",
+		action="store_true"
+	)
 
 	args = parser.parse_args()
 	
@@ -48,6 +53,12 @@ if __name__ == "__main__":
 	if args.xmltv:
 		print("Generating XMLTV...")
 		scheduler.generate_xmltv(config.XMLTV_LOCATION)
+		print("Done!")
+		did_something = True
+
+	if args.adjust_times:
+		print("Adjusting times for future schedule items...")
+		scheduler.adjust_schedule_times()
 		print("Done!")
 		did_something = True
 

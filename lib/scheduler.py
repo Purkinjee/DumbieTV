@@ -167,8 +167,8 @@ class Scheduler:
 			if in_marathon:
 				marathon_timer += next_episode['duration']
 
-			q = "INSERT INTO schedule (tv_episode_id, start_time, end_time) VALUES (%s, %s, %s)"
-			cur.execute(q, (next_episode['id'], episode_start_time, episode_end_time))
+			q = "INSERT INTO schedule (tv_episode_id, start_time, end_time, is_marathon) VALUES (%s, %s, %s, %s)"
+			cur.execute(q, (next_episode['id'], episode_start_time, episode_end_time, in_marathon*1))
 
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
 			cur.execute(q, (next_episode['id'], next_episode['tv_show_id']))
@@ -214,7 +214,10 @@ class Scheduler:
 
 			title_element = root.createElement("title")
 			title_element.setAttribute("lang", "en")
-			title = f"{s['show_title']} S{s['season_number']} E{s['episode_number']}"
+			extra_title = ""
+			if s['is_marathon']:
+				extra_title = " Marathon!"
+			title = f"{s['show_title']}{extra_title} S{s['season_number']} E{s['episode_number']}"
 			title_element.appendChild(root.createTextNode(title))
 
 			description = s['episode_description']
@@ -242,4 +245,44 @@ class Scheduler:
 		with open(output_file, 'w') as f:
 			f.write(xml_str)
 
+		cur.close()
+
+	def adjust_schedule_times(self):
+		cur = self._db.cursor(dictionary=True)
+
+		q = "SELECT * FROM schedule WHERE completed = 1 AND actual_end_time IS NOT NULL ORDER BY start_time DESC LIMIT 1"
+		cur.execute(q)
+		recent_finish = cur.fetchone()
+
+		if not recent_finish:
+			print("Nothing has every played?")
+			cur.close()
+			return
+		
+		if recent_finish['end_time'] == recent_finish['actual_end_time']:
+			print("Times already match")
+			cur.close()
+			return
+		
+		offset = (recent_finish['actual_end_time'] - recent_finish['end_time']).total_seconds()
+		print(f"Offset is {offset}s")
+
+		q = "SELECT * FROM schedule WHERE start_time > NOW() AND actual_start_time IS NULL AND completed = 0 ORDER BY start_time"
+		cur.execute(q)
+		future_items = cur.fetchall()
+
+		previous = None
+		for schedule in future_items:
+			if previous and previous['end_time'] < schedule['start_time']:
+				print(f"Gap in schedule found at {schedule['start_time']}. No further adjustments made")
+				break
+			q = "UPDATE schedule SET start_time = %s, end_time = %s WHERE id = %s"
+			cur.execute(q, (
+				schedule['start_time'] + timedelta(seconds=offset),
+				schedule['end_time'] + timedelta(seconds=offset),
+				schedule['id']
+			))
+			previous = schedule
+
+		self._db.commit()
 		cur.close()

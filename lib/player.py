@@ -55,7 +55,7 @@ class PlayerThread(threading.Thread):
 			if to_play.get('wait_until', None) is not None:
 				now = datetime.now()
 				if to_play['wait_until'] > now:
-					seconds_to_wait = (to_play['wait_until'] - now).seconds
+					seconds_to_wait = (to_play['wait_until'] - now).total_seconds()
 					print(f"Thread was told to wait for {seconds_to_wait}s")
 					time.sleep(seconds_to_wait)
 
@@ -108,13 +108,13 @@ class Player:
 			now = datetime.now()
 
 			if now < starting_schedule['start_time']:
-				to_wait = (starting_schedule['start_time'] - now).seconds
+				to_wait = (starting_schedule['start_time'] - now).total_seconds()
 				print(f"Waiting for {to_wait}s for next scheduled show")
 				time.sleep(to_wait)
 
 		skipto = None
 		if starting_schedule['start_time'] < datetime.now():
-			gap = (datetime.now() - starting_schedule['start_time']).seconds
+			gap = (datetime.now() - starting_schedule['start_time']).total_seconds()
 			if gap > 0:
 				skipto = gap
 

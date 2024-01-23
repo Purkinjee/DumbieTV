@@ -112,13 +112,21 @@ class TVScanner:
 			show_root = Path(r['path'])
 			tvdb_id = r['tvdb_id']
 			series = tvdb.get_series(tvdb_id)
-			episodes = tvdb.get_series_episodes(tvdb_id)['episodes']
+			
+			episodes = []
+			page = 0
+			this_page = tvdb.get_series_episodes(tvdb_id, page=page)
+			while this_page.get('episodes'):
+				episodes += this_page['episodes']
+				page +=1
+				this_page = tvdb.get_series_episodes(tvdb_id, page=page)
+
 			for current_folder, subfolders, files in os.walk(show_root):
 				for file in files:
 					full_path = os.path.join(current_folder, file)
 
 					sp = subprocess.run([
-						"ffprobe", "-v", "error", "-show_entries", "format=duration",
+						"/usr/local/bin/ffprobe", "-v", "error", "-show_entries", "format=duration",
 						"-of", "default=noprint_wrappers=1:nokey=1", full_path
 					], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 					duration = int(float(sp.stdout))
@@ -213,5 +221,30 @@ class TVScanner:
 			self._db.commit()
 			
 			print(' ')
+
+		cur.close()
+
+	def cleanup_last_played_episodes(self):
+		cur = self._db.cursor(dictionary=True)
+
+		q = "SELECT id, last_played_episode, title FROM tv_shows WHERE verified = 1 AND enabled = 1"
+		cur.execute(q)
+		shows = cur.fetchall()
+
+		for show in shows:
+			q = "SELECT schedule.tv_episode_id FROM schedule LEFT JOIN tv_episodes ON schedule.tv_episode_id = tv_episodes.id LEFT JOIN tv_shows ON tv_episodes.tv_show_id = tv_shows.id WHERE tv_shows.id = %s ORDER BY schedule.start_time DESC LIMIT 1"
+			cur.execute(q, (show['id'], ))
+			last_played = cur.fetchone()
+			last_played_episode_id = None
+			if last_played:
+				last_played_episode_id = last_played['tv_episode_id']
+
+			if last_played_episode_id == show['last_played_episode']:
+				print(f"Last played matches for {show['title']}")
+			else:
+				print(f"Mismatch for {show['title']}! Fixing...")
+				q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
+				cur.execute(q, (last_played_episode_id, show['id']))
+		self._db.commit()	
 
 		cur.close()

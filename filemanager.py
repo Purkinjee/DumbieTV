@@ -32,6 +32,11 @@ if __name__ == "__main__":
 		help="Force update of SHOW_ID. Only useful with --update-shows",
 		type=int
 	)
+	parser.add_argument(
+		"--cleanup-last-played",
+		help="Make sure last played episode is correct. Useful if the schedule has been manually edited",
+		action="store_true"
+	)
 
 	args = parser.parse_args()
 
@@ -61,6 +66,12 @@ if __name__ == "__main__":
 	if args.purge_missing_episodes:
 		print("Purging missing episodes...")
 		scanner.remove_missing_episodes()
+		print('Done!')
+		did_something = True
+
+	if args.cleanup_last_played:
+		print("Cleaning up last played episodes...")
+		scanner.cleanup_last_played_episodes()
 		print('Done!')
 		did_something = True
 	
