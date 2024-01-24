@@ -59,16 +59,28 @@ class Scheduler:
 		return res
 
 	def build_schedule(self, date=datetime.now().date()+timedelta(days=1)):
-		start_time = datetime.combine(date, dttime(4))
+		start_time = datetime.combine(date, dttime(0))
 		cur = self._db.cursor(dictionary=True)
 
-		q = "SELECT * FROM schedule WHERE start_time >= %s AND start_time < %s LIMIT 1"
-		cur.execute(q, (start_time, start_time + timedelta(hours=24)))
-		res = cur.fetchone()
-		if res:
-			print(f"Scheduled items already exist for {date}")
-			cur.close()
-			return
+		# q = "SELECT * FROM schedule WHERE start_time >= %s AND start_time < %s LIMIT 1"
+		# cur.execute(q, (start_time, start_time + timedelta(hours=24)))
+		# res = cur.fetchone()
+		# if res:
+		# 	print(f"Scheduled items already exist for {date}")
+		# 	cur.close()
+		# 	return
+
+		q = "SELECT * FROM schedule WHERE end_time >= %s ORDER BY end_time DESC LIMIT 1"
+		cur.execute(q, (start_time, ))
+		schedule_end = cur.fetchone()
+
+		if schedule_end:
+			if schedule_end['end_time'].date() > date:
+				print(f"Scheduled items already exist for {date}")
+				cur.close()
+				return
+			else:
+				start_time = schedule_end['end_time']
 
 		marathon_show = None
 		marathon_data = {}
@@ -84,15 +96,25 @@ class Scheduler:
 				marathon_show = cur.fetchone()
 
 		if marathon_show is not None:
-			## Start the marathon with >= 12h left in the day
-			marathon_start = random.randint(0, 43200)
-			## Duration is 8-12 hours
-			marathon_duration = random.randint(28800, 43200)
-			marathon_data = {
-				'start': marathon_start,
-				'duration': marathon_duration
-			}
-		
+			## Make sure we have at least 8 hours of open schedule this day
+			schedule_end_time = datetime.combine(date + timedelta(days=1), dttime(0))
+			time_left_in_day = (schedule_end_time - start_time).total_seconds()
+			## Not enough time for a marathon
+			if time_left_in_day < 28800:
+				marathon_show = None
+			else:
+				## Max duration is 12 hours unless that much time isn't left in the day
+				max_duration = min(time_left_in_day, 43200)
+				## Duration is 8-12 hours
+				marathon_duration = random.randint(28800, max_duration)
+				## Start the marathon with enough time left in the day
+				marathon_start = random.randint(0, time_left_in_day - marathon_duration)
+				
+				marathon_data = {
+					'start': marathon_start,
+					'duration': marathon_duration
+				}
+
 		total_duration = 0
 		previous_show = None
 		current_show_counter = 0
@@ -142,8 +164,8 @@ class Scheduler:
 				continue
 
 			## break if we are going to exceed 24h
-			if total_duration + next_episode['duration'] > 86400:
-				break
+			#if total_duration + next_episode['duration'] > 86400:
+			#	break
 			
 			if current_show_counter >= current_show_repeats:
 				## Allow more repeats of shorter shows
@@ -173,6 +195,9 @@ class Scheduler:
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
 			cur.execute(q, (next_episode['id'], next_episode['tv_show_id']))
 			self._db.commit()
+
+			if episode_end_time.date() > date:
+				break
 
 		cur.close()
 

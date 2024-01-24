@@ -33,6 +33,12 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 	
 	did_something = False
+	if args.adjust_times:
+		print("Adjusting times for future schedule items...")
+		scheduler.adjust_schedule_times()
+		print("Done!")
+		did_something = True
+	
 	if args.create_schedule:
 		if args.date is not None:
 			try:
@@ -53,12 +59,6 @@ if __name__ == "__main__":
 	if args.xmltv:
 		print("Generating XMLTV...")
 		scheduler.generate_xmltv(config.XMLTV_LOCATION)
-		print("Done!")
-		did_something = True
-
-	if args.adjust_times:
-		print("Adjusting times for future schedule items...")
-		scheduler.adjust_schedule_times()
 		print("Done!")
 		did_something = True
 

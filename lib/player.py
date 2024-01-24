@@ -64,7 +64,8 @@ class PlayerThread(threading.Thread):
 				'start_time': datetime.now()
 			})
 			
-			print(f"Playing {to_play['path']}")
+			print(f"[{datetime.now().strftime('%Y%m%d %H:%M:%S')}] Playing {to_play['path']}")
+			#print(' '.join(ffmpeg_params))
 			self._ffmpeg_process = subprocess.Popen(ffmpeg_params, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 			#self._ffmpeg_process = subprocess.Popen(ffmpeg_params)
 			while self._ffmpeg_process.poll() is None:

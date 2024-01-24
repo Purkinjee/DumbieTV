@@ -38,5 +38,6 @@ CREATE TABLE schedule (
 	actual_start_time DATETIME DEFAULT NULL,
 	actual_end_time DATETIME DEFAULT NULL,
 	completed TINYINT NOT NULL DEFAULT 0,
+	is_marathon TINYINT NOT NULL DEFAULT 0,
 	PRIMARY KEY (id)
 );
