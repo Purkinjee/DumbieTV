@@ -4,13 +4,19 @@ import pytz
 from tzlocal import get_localzone
 from xml.dom import minidom
 
-from lib.common import get_mysql_connection, _print
+from lib.common import get_mysql_connection, Logger
 import config
 from lib.vars import *
 
+_print = Logger()._print
+
 class Scheduler:
-	def __init__(self):
+	def __init__(self, logger=None):
 		self._db = get_mysql_connection()
+
+		if logger is not None:
+			global _print
+			_print = logger._print
 
 	def close(self):
 		self._db.close()

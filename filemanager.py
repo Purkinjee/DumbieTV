@@ -2,10 +2,9 @@
 import argparse, sys
 
 from lib.meta import TVScanner
-from lib.common import _print
+from lib.common import Logger, add_logger_args, get_logger_from_args
 
 if __name__ == "__main__":
-	scanner = TVScanner()
 	parser = argparse.ArgumentParser()
 
 	parser.add_argument(
@@ -38,8 +37,13 @@ if __name__ == "__main__":
 		help="Make sure last played episode is correct. Useful if the schedule has been manually edited",
 		action="store_true"
 	)
+	add_logger_args(parser)
 
 	args = parser.parse_args()
+	logger = get_logger_from_args(args)
+	_print = logger._print
+
+	scanner = TVScanner(logger=logger)
 
 	did_something = False
 	if args.add_new_shows:

@@ -6,9 +6,11 @@ import threading
 import queue
 import json
 
-from lib.common import get_mysql_connection, _print
+from lib.common import get_mysql_connection, Logger
 from lib.vars import *
 import config
+
+_print = Logger()._print
 
 class PlayerThread(threading.Thread):
 	def __init__(self, playlist_queue, completed_queue):
@@ -92,11 +94,14 @@ class PlayerThread(threading.Thread):
 	def stop(self):
 		self._keep_listening = False
 		if self._ffmpeg_process is not None:
+			_print("Terminating ffmpeg process", LOG_LEVEL_DEBUG)
 			self._ffmpeg_process.terminate()
 
 class Player:
-	def __init__(self):
-		pass
+	def __init__(self, logger=None):
+		if logger is not None:
+			global _print
+			_print = logger._print
 	
 	def close(self):
 		pass
@@ -142,6 +147,7 @@ class Player:
 			if gap > 0:
 				skipto = gap
 
+		_print(f"Skipping {skipto}s of first show", LOG_LEVEL_DEBUG)
 		playlist_queue.put({
 			'id': starting_schedule['id'],
 			'path': starting_schedule['path'],
@@ -185,6 +191,7 @@ class Player:
 				if next_schedule['start_time'] != previous_played['end_time']:
 					wait_until = next_schedule['start_time']
 
+				_print(f"Adding {next_schedule['path']} to the queue", LOG_LEVEL_DEBUG)
 				playlist_queue.put({
 					'id': next_schedule['id'],
 					'path': next_schedule['path'],
@@ -222,6 +229,7 @@ class Player:
 				if stream.get('codec_type') != 'audio':
 					continue
 				if stream.get('tags', {}).get('language', '').lower() == 'eng':
+					_print(f"Found audio track for {file_path} ({stream['index']})", LOG_LEVEL_DEBUG)
 					audio_track = stream['index']
 					break
 		
@@ -234,6 +242,7 @@ class Player:
 			try:
 				completed = completed_queue.get(block=False)
 				if completed.get('start_time') is not None:
+					_print(f"Setting start time to {completed['start_time']} for {completed['id']}", LOG_LEVEL_DEBUG)
 					q = (
 						"UPDATE schedule "
 						"SET actual_start_time = %s, "
@@ -243,6 +252,7 @@ class Player:
 					cur.execute(q, (completed['start_time'], completed['id']))
 				
 				if completed.get('end_time') is not None:
+					_print(f"Setting end time to {completed['end_time']} for {completed['id']}", LOG_LEVEL_DEBUG)
 					q = (
 						"UPDATE schedule "
 						"SET actual_end_time = %s, "

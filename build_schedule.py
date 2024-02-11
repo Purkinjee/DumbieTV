@@ -5,10 +5,9 @@ from datetime import datetime, timedelta
 from lib.scheduler import Scheduler
 import config
 from lib.vars import *
-from lib.common import _print
+from lib.common import Logger, add_logger_args, get_logger_from_args
 
 if __name__ == "__main__":
-	scheduler = Scheduler()
 	parser = argparse.ArgumentParser()
 
 	parser.add_argument(
@@ -31,8 +30,13 @@ if __name__ == "__main__":
 		help="Adjust future listings based off actual end times of shows",
 		action="store_true"
 	)
+	add_logger_args(parser)
 
 	args = parser.parse_args()
+	logger = get_logger_from_args(args)
+	_print = logger._print
+
+	scheduler = Scheduler(logger=logger)
 	
 	did_something = False
 	if args.adjust_times:

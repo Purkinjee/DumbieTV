@@ -7,13 +7,18 @@ from datetime import datetime, timedelta
 from imdb import Cinemagoer
 import tvdb_v4_official
 
-from lib.common import get_mysql_connection, get_image_dimensions, _print
+from lib.common import get_mysql_connection, get_image_dimensions, Logger
 from lib.vars import *
 import config
 
+_print = Logger()._print
+
 class TVScanner:
-	def __init__(self):
+	def __init__(self, logger=None):
 		self._db = get_mysql_connection()
+		if logger is not None:
+			global _print
+			_print = logger._print
 
 	def close(self):
 		self._db.close()
