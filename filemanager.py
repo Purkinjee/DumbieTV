@@ -2,6 +2,7 @@
 import argparse, sys
 
 from lib.meta import TVScanner
+from lib.common import _print
 
 if __name__ == "__main__":
 	scanner = TVScanner()
@@ -42,37 +43,37 @@ if __name__ == "__main__":
 
 	did_something = False
 	if args.add_new_shows:
-		print("Adding new shows...")
+		_print("Adding new shows...")
 		scanner.add_new_shows()
-		print("Done!")
+		_print("Done!")
 		did_something = True
 
 	if args.add_new_episodes:
-		print("Adding new episodes...")
+		_print("Adding new episodes...")
 		scanner.add_new_episodes()
-		print("Done!")
+		_print("Done!")
 		did_something = True
 
 	if args.update_shows:
 		if args.show_id is None:
-			print("Updating shows...")
+			_print("Updating shows...")
 		else:
-			print(f"Updating show {args.show_id}")
+			_print(f"Updating show {args.show_id}")
 		
 		scanner.update_shows(show_id = args.show_id)
-		print("Done!")
+		_print("Done!")
 		did_something = True
 
 	if args.purge_missing_episodes:
-		print("Purging missing episodes...")
+		_print("Purging missing episodes...")
 		scanner.remove_missing_episodes()
-		print('Done!')
+		_print('Done!')
 		did_something = True
 
 	if args.cleanup_last_played:
-		print("Cleaning up last played episodes...")
+		_print("Cleaning up last played episodes...")
 		scanner.cleanup_last_played_episodes()
-		print('Done!')
+		_print('Done!')
 		did_something = True
 	
 	if not did_something:

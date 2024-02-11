@@ -4,8 +4,10 @@ import os, sys, signal
 import subprocess
 import threading
 import queue
+import json
 
-from lib.common import get_mysql_connection
+from lib.common import get_mysql_connection, _print
+from lib.vars import *
 import config
 
 class PlayerThread(threading.Thread):
@@ -23,12 +25,11 @@ class PlayerThread(threading.Thread):
 			try:
 				to_play = self.playlist_queue.get(timeout=5)
 			except queue.Empty:
-				print('Queue is empty')
+				_print('Queue is empty', LOG_LEVEL_ERROR)
 				continue
 
 			ffmpeg_params = [
-				'ffmpeg',
-				#'-hwaccel', 'cuda',
+				config.FFMPEG_PATH,
 				'-hwaccel_output_format', 'cuda',
 				'-re'
 			]
@@ -37,17 +38,24 @@ class PlayerThread(threading.Thread):
 					'-ss', str(to_play['skipto'])
 				]
 			
+			vf = (
+				'scale=1920:1080:force_original_aspect_ratio=decrease,'
+				'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,'
+				'setsar=1,'
+				'format=yuv420p'
+			)
 			ffmpeg_params += [
 				'-i', to_play['path'],
 				'-c:v', 'h264_nvenc',
-				#'-vf', "scale_cuda=w=1920:h=1080:force_original_aspect_ratio=0:format=yuv420p",
-				'-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p',
+				'-vf', vf,
 				'-pix_fmt', 'yuv420p',
 				'-r', '30000/1001',
 				'-c:a', 'aac',
 				'-ar', '44100',
 				'-b:a', "256k",
-				'-ac', '1',
+				'-ac', "1",
+				'-map', "0:0",
+				'-map', f"0:{to_play.get('audio_track', '1')}",
 				'-f', 'flv',
 				config.RTMP_POST
 			]
@@ -56,7 +64,7 @@ class PlayerThread(threading.Thread):
 				now = datetime.now()
 				if to_play['wait_until'] > now:
 					seconds_to_wait = (to_play['wait_until'] - now).total_seconds()
-					print(f"Thread was told to wait for {seconds_to_wait}s")
+					_print(f"Thread was told to wait for {seconds_to_wait}s", LOG_LEVEL_INFO)
 					time.sleep(seconds_to_wait)
 
 			self.completed_queue.put({
@@ -64,9 +72,12 @@ class PlayerThread(threading.Thread):
 				'start_time': datetime.now()
 			})
 			
-			print(f"[{datetime.now().strftime('%Y%m%d %H:%M:%S')}] Playing {to_play['path']}")
-			#print(' '.join(ffmpeg_params))
-			self._ffmpeg_process = subprocess.Popen(ffmpeg_params, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+			_print(f"Playing {to_play['path']}", LOG_LEVEL_INFO)
+			self._ffmpeg_process = subprocess.Popen(
+				ffmpeg_params, 
+				stdout=subprocess.DEVNULL, 
+				stderr=subprocess.STDOUT
+			)
 			#self._ffmpeg_process = subprocess.Popen(ffmpeg_params)
 			while self._ffmpeg_process.poll() is None:
 				time.sleep(1)
@@ -85,32 +96,44 @@ class PlayerThread(threading.Thread):
 
 class Player:
 	def __init__(self):
-		self._db = get_mysql_connection()
+		pass
 	
 	def close(self):
-		self._db.close()
+		pass
 	
 	def play(self):
-		cur = self._db.cursor(dictionary=True)
+		db = get_mysql_connection()
+		cur = db.cursor(dictionary=True)
 		playlist_queue = queue.Queue()
 		completed_queue = queue.Queue()
 
-		q = "SELECT schedule.*, tv_episodes.path FROM schedule LEFT JOIN tv_episodes ON schedule.tv_episode_id = tv_episodes.id WHERE start_time <= NOW() AND end_time > NOW() ORDER BY start_time LIMIT 1"
+		q = (
+			"SELECT * FROM schedule "
+			"WHERE start_time <= NOW() "
+			"AND end_time > NOW() "
+			"ORDER BY start_time "
+			"LIMIT 1"
+		)
 		cur.execute(q)
 		starting_schedule = cur.fetchone()
 
 		if not starting_schedule:
-			q = "SELECT * FROM schedule WHERE start_time >= NOW() ORDER BY start_time LIMIT 1"
+			q = (
+				"SELECT * FROM schedule "
+				"WHERE start_time >= NOW() "
+				"ORDER BY start_time "
+				"LIMIT 1"
+			)
 			cur.execute(q)
 			starting_schedule = cur.fetchone()
 			if not starting_schedule:
-				print("Nothing exists in schedule")
+				_print("Nothing exists in schedule", LOG_LEVEL_ERROR)
 				return
 			now = datetime.now()
 
 			if now < starting_schedule['start_time']:
 				to_wait = (starting_schedule['start_time'] - now).total_seconds()
-				print(f"Waiting for {to_wait}s for next scheduled show")
+				_print(f"Waiting for {to_wait}s for next scheduled show", LOG_LEVEL_INFO)
 				time.sleep(to_wait)
 
 		skipto = None
@@ -123,12 +146,15 @@ class Player:
 			'id': starting_schedule['id'],
 			'path': starting_schedule['path'],
 			'skipto': skipto,
+			'audio_track': self._get_audio_track(starting_schedule['path'])
 		})
 
 		pt = PlayerThread(playlist_queue, completed_queue)
 		pt.start()
 
 		previous_played = starting_schedule
+		cur.close()
+		db.close()
 		while True:
 			try:
 				if not completed_queue.empty():
@@ -137,12 +163,21 @@ class Player:
 					time.sleep(5)
 					continue
 				
-				q = "SELECT schedule.*, tv_episodes.path FROM schedule LEFT JOIN tv_episodes ON schedule.tv_episode_id = tv_episodes.id WHERE start_time > %s ORDER BY start_time LIMIT 1"
-				cur.execute(q, (previous_played['start_time'], ))
+				db = get_mysql_connection()
+				cur = db.cursor(dictionary=True)
+				
+				q = (
+					"SELECT * FROM schedule "
+					"WHERE start_time > "
+						"(SELECT start_time FROM schedule WHERE id = %s) "
+					"ORDER BY start_time "
+					"LIMIT 1"
+				)
+				cur.execute(q, (previous_played['id'], ))
 				next_schedule = cur.fetchone()
 
 				if not next_schedule:
-					print("Nothing in schedule")
+					_print("Nothing in schedule", LOG_LEVEL_ERROR)
 					time.sleep(10)
 					continue
 				
@@ -153,30 +188,74 @@ class Player:
 				playlist_queue.put({
 					'id': next_schedule['id'],
 					'path': next_schedule['path'],
-					'wait_until': wait_until
+					'wait_until': wait_until,
+					'audio_track': self._get_audio_track(next_schedule['path'])
 				})
 				previous_played = next_schedule
+
+				cur.close()
+				db.close()
 			except KeyboardInterrupt:
 				pt.stop()
 				sys.exit(0)
 
+	def _get_audio_track(self, file_path):
+		ffprobe_params = [
+			config.FFPROBE_PATH,
+			'-hide_banner', '-show_streams',
+			'-print_format', 'json',
+			file_path
+		]
+		process = subprocess.Popen(
+			ffprobe_params, 
+			stdout=subprocess.PIPE,
+			stderr=subprocess.PIPE
+		)
+
+		process.wait()
+		data, err = process.communicate()
+		audio_track = 1
+		if process.returncode == 0:
+			output = json.loads(data.decode('utf-8'))
+
+			for stream in output.get('streams', []):
+				if stream.get('codec_type') != 'audio':
+					continue
+				if stream.get('tags', {}).get('language', '').lower() == 'eng':
+					audio_track = stream['index']
+					break
+		
+		return audio_track
+
 	def _handle_completed(self, completed_queue):
-		cur = self._db.cursor()
+		db = get_mysql_connection()
+		cur = db.cursor()
 		while True:
 			try:
 				completed = completed_queue.get(block=False)
 				if completed.get('start_time') is not None:
-					q = "UPDATE schedule SET actual_start_time = %s, completed = 0 WHERE id = %s"
+					q = (
+						"UPDATE schedule "
+						"SET actual_start_time = %s, "
+						"completed = 0 "
+						"WHERE id = %s"
+					)
 					cur.execute(q, (completed['start_time'], completed['id']))
 				
 				if completed.get('end_time') is not None:
-					q = "UPDATE schedule SET actual_end_time = %s, completed = 1 WHERE id = %s"
+					q = (
+						"UPDATE schedule "
+						"SET actual_end_time = %s, "
+						"completed = 1 "
+						"WHERE id = %s"
+					)
 					cur.execute(q, (
 						completed['end_time'],
 						completed['id']
 					))
-				self._db.commit()
+				db.commit()
 
 			except queue.Empty:
 				cur.close()
+				db.close()
 				return

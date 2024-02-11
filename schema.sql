@@ -32,7 +32,13 @@ CREATE TABLE tv_episodes (
 
 CREATE TABLE schedule (
 	id INT NOT NULL AUTO_INCREMENT,
-	tv_episode_id INT NOT NULL,
+	--tv_episode_id INT NOT NULL,
+	title VARCHAR(255) DEFAULT NULL,
+	description TEXT DEFAULT NULL,
+	path VARCHAR(255) NOT NULL,
+	thumbnail VARCHAR(255) DEFAULT NULL,
+	thumbnail_width INT NOT NULL DEFAULT 0,
+	thumbnail_height INT NOT NULL DEFAULT 0,
 	start_time DATETIME NOT NULL,
 	end_time DATETIME NOT NULL,
 	actual_start_time DATETIME DEFAULT NULL,

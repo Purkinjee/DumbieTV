@@ -2,6 +2,7 @@
 config.py
 lib/old/
 scripts/
+php_includes/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

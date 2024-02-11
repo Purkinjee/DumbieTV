@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 
 from lib.scheduler import Scheduler
 import config
+from lib.vars import *
+from lib.common import _print
 
 if __name__ == "__main__":
 	scheduler = Scheduler()
@@ -34,9 +36,9 @@ if __name__ == "__main__":
 	
 	did_something = False
 	if args.adjust_times:
-		print("Adjusting times for future schedule items...")
+		_print("Adjusting times for future schedule items...")
 		scheduler.adjust_schedule_times()
-		print("Done!")
+		_print("Done!")
 		did_something = True
 	
 	if args.create_schedule:
@@ -47,19 +49,19 @@ if __name__ == "__main__":
 				print("Unable to parse date. Use YYYYMMDD")
 				sys.exit()
 			
-			print(f"Creating schedule for {args.date}...")
+			_print(f"Creating schedule for {args.date}...")
 			scheduler.build_schedule(date=date)
 		
 		else:
-			print("Creating schedule...")
+			_print("Creating schedule...")
 			scheduler.build_schedule()
-		print("Done!")
+		_print("Done!")
 		did_something = True
 
 	if args.xmltv:
-		print("Generating XMLTV...")
+		_print("Generating XMLTV...")
 		scheduler.generate_xmltv(config.XMLTV_LOCATION)
-		print("Done!")
+		_print("Done!")
 		did_something = True
 
 	if not did_something:

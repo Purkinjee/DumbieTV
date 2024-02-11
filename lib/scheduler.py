@@ -4,8 +4,9 @@ import pytz
 from tzlocal import get_localzone
 from xml.dom import minidom
 
-from lib.common import get_mysql_connection
+from lib.common import get_mysql_connection, _print
 import config
+from lib.vars import *
 
 class Scheduler:
 	def __init__(self):
@@ -22,37 +23,60 @@ class Scheduler:
 
 		last_played = res['last_played_episode']
 		if last_played is None:
-			#q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s AND transcoded = 1 ORDER BY season_number, episode_number LIMIT 1"
-			q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s ORDER BY season_number, episode_number LIMIT 1"
+			q = (
+				"SELECT * FROM tv_episodes "
+				"WHERE tv_show_id = %s "
+				"ORDER BY season_number, episode_number "
+				"LIMIT 1"
+			)
 			cur.execute(q, (tv_show_id, ))
 			next_episode = cur.fetchone()
 			cur.close()
 			return next_episode
 		
-		q = "SELECT season_number, episode_number FROM tv_episodes WHERE id = %s"
+		q = (
+			"SELECT season_number, episode_number "
+			"FROM tv_episodes "
+			"WHERE id = %s"
+		)
 		cur.execute(q, (last_played, ))
 		res = cur.fetchone()
 		last_season = res['season_number']
 		last_episode = res['episode_number']
 
-		#q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s AND season_number = %s AND episode_number > %s AND transcoded = 1 ORDER BY episode_number LIMIT 1"
-		q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s AND season_number = %s AND episode_number > %s ORDER BY episode_number LIMIT 1"
+		q = (
+			"SELECT * FROM tv_episodes "
+			"WHERE tv_show_id = %s "
+			"AND season_number = %s "
+			"AND episode_number > %s "
+			"ORDER BY episode_number "
+			"LIMIT 1"
+		)
 		cur.execute(q, (tv_show_id, last_season, last_episode))
 		res = cur.fetchone()
 		if res:
 			cur.close()
 			return res
 		
-		#q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s AND season_number > %s AND transcoded = 1 ORDER BY season_number, episode_number LIMIT 1"
-		q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s AND season_number > %s ORDER BY season_number, episode_number LIMIT 1"
+		q = (
+			"SELECT * FROM tv_episodes "
+			"WHERE tv_show_id = %s "
+			"AND season_number > %s "
+			"ORDER BY season_number, episode_number "
+			"LIMIT 1"
+		)
 		cur.execute(q, (tv_show_id, last_season))
 		res = cur.fetchone()
 		if res:
 			cur.close()
 			return res
 		
-		#q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s AND transcoded = 1 ORDER BY season_number, episode_number LIMIT 1"
-		q = "SELECT * FROM tv_episodes WHERE tv_show_id = %s ORDER BY season_number, episode_number LIMIT 1"
+		q = (
+			"SELECT * FROM tv_episodes "
+			"WHERE tv_show_id = %s "
+			"ORDER BY season_number, episode_number "
+			"LIMIT 1"
+		)
 		cur.execute(q, (tv_show_id, ))
 		res = cur.fetchone()
 		cur.close()
@@ -62,21 +86,18 @@ class Scheduler:
 		start_time = datetime.combine(date, dttime(0))
 		cur = self._db.cursor(dictionary=True)
 
-		# q = "SELECT * FROM schedule WHERE start_time >= %s AND start_time < %s LIMIT 1"
-		# cur.execute(q, (start_time, start_time + timedelta(hours=24)))
-		# res = cur.fetchone()
-		# if res:
-		# 	print(f"Scheduled items already exist for {date}")
-		# 	cur.close()
-		# 	return
-
-		q = "SELECT * FROM schedule WHERE end_time >= %s ORDER BY end_time DESC LIMIT 1"
+		q = (
+			"SELECT * FROM schedule "
+			"WHERE end_time >= %s "
+			"ORDER BY end_time DESC "
+			"LIMIT 1"
+		)
 		cur.execute(q, (start_time, ))
 		schedule_end = cur.fetchone()
 
 		if schedule_end:
 			if schedule_end['end_time'].date() > date:
-				print(f"Scheduled items already exist for {date}")
+				_print(f"Scheduled items already exist for {date}", LOG_LEVEL_ERROR)
 				cur.close()
 				return
 			else:
@@ -86,8 +107,17 @@ class Scheduler:
 		marathon_data = {}
 		if random.random() <= config.MARATHON_CHANCE:
 			## All shows that have >= 20h of content
-			#s = "SELECT SUM(duration) AS total_duration, tv_show_id FROM tv_episodes LEFT JOIN tv_shows ON tv_episodes.tv_show_id = tv_shows.id WHERE tv_shows.enabled = 1 AND tv_episodes.transcoded = 1 GROUP BY tv_show_id HAVING total_duration >= 72000 ORDER BY RAND() LIMIT 1"
-			s = "SELECT SUM(duration) AS total_duration, tv_show_id FROM tv_episodes LEFT JOIN tv_shows ON tv_episodes.tv_show_id = tv_shows.id WHERE tv_shows.enabled = 1 GROUP BY tv_show_id HAVING total_duration >= 72000 ORDER BY RAND() LIMIT 1"
+			s = (
+				"SELECT SUM(duration) AS total_duration, tv_show_id "
+				"FROM tv_episodes "
+				"LEFT JOIN tv_shows "
+				"ON tv_episodes.tv_show_id = tv_shows.id "
+				"WHERE tv_shows.enabled = 1 "
+				"GROUP BY tv_show_id "
+				"HAVING total_duration >= 72000 "
+				"ORDER BY RAND() "
+				"LIMIT 1"
+			)
 			cur.execute(s)
 			res = cur.fetchone()
 			if res:
@@ -126,24 +156,68 @@ class Scheduler:
 			if current_show_id is None or current_show_counter >= current_show_repeats and not in_marathon:
 				current_show_counter = 0
 				current_show_repeats = 0
+				meta = {
+					'show_name': None,
+					'title': 'Unknown',
+					'description': 'No Description',
+					'thumbnail': None,
+					'thumbnail_height': 0,
+					'thumbnail_width': 0
+				}
 				if previous_show is None:
 					if marathon_show is None:
-						q = "SELECT id FROM tv_shows WHERE enabled = 1 ORDER BY RAND() LIMIT 1"
+						q = (
+							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
+							"FROM tv_shows "
+							"WHERE enabled = 1 "
+							"ORDER BY RAND() "
+							"LIMIT 1"
+						)
 						cur.execute(q)
 					else:
-						q = "SELECT id FROM tv_shows WHERE enabled = 1 AND id != %s ORDER BY RAND() LIMIT 1"
+						q = (
+							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
+							"FROM tv_shows "
+							"WHERE enabled = 1 "
+							"AND id != %s "
+							"ORDER BY RAND() "
+							"LIMIT 1"
+						)
 						cur.execute(q, (marathon_show['id'], ))
 				else:
 					if marathon_show is None:
-						q = "SELECT id FROM tv_shows WHERE enabled = 1 AND id != %s ORDER BY RAND() LIMIT 1"
+						q = (
+							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
+							"FROM tv_shows "
+							"WHERE enabled = 1 "
+							"AND id != %s "
+							"ORDER BY RAND() "
+							"LIMIT 1"
+						)
 						cur.execute(q, (previous_show, ))
 					else:
-						q = "SELECT id FROM tv_shows WHERE enabled = 1 AND id != %s AND id != %s ORDER BY RAND() LIMIT 1"
+						q = (
+							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
+							"FROM tv_shows "
+							"WHERE enabled = 1 "
+							"AND id != %s "
+							"AND id != %s "
+							"ORDER BY RAND() "
+							"LIMIT 1"
+						)
 						cur.execute(q, (previous_show, marathon_show['id']))
 				res = cur.fetchone()
 				current_show_id = res['id']
+				meta['show_name'] = res['title']
+				meta['thumbnail'] = res['thumbnail']
+				meta['thumbnail_height'] = res['thumbnail_height']
+				meta['thumbnail_width'] = res['thumbnail_width']
 			elif in_marathon:
 				current_show_id = marathon_show['id']
+				meta['show_name'] = marathon_show['title']
+				meta['thumbnail'] = marathon_show['thumbnail']
+				meta['thumbnail_height'] = marathon_show['thumbnail_height']
+				meta['thumbnail_width'] = marathon_show['thumbnail_width']
 
 			next_episode = self.get_next_episode(current_show_id)
 			if not next_episode:
@@ -152,7 +226,11 @@ class Scheduler:
 				continue
 
 			## See if we entered MARATHON TIME
-			if marathon_show is not None and total_duration + next_episode['duration'] > marathon_data['start'] and not in_marathon and marathon_timer == 0:
+			if (marathon_show is not None 
+				and total_duration + next_episode['duration'] > marathon_data['start'] 
+				and not in_marathon 
+				and marathon_timer == 0):
+
 				in_marathon = True
 				current_show_counter = 0
 				current_show_repeats = 0
@@ -163,11 +241,10 @@ class Scheduler:
 				in_marathon = False
 				continue
 
-			## break if we are going to exceed 24h
-			#if total_duration + next_episode['duration'] > 86400:
-			#	break
+			meta['description'] = next_episode['description']
 			
 			if current_show_counter >= current_show_repeats:
+				current_show_counter = 0
 				## Allow more repeats of shorter shows
 				if next_episode['duration'] > 1800:
 					possible_repeats = [2]
@@ -188,9 +265,29 @@ class Scheduler:
 
 			if in_marathon:
 				marathon_timer += next_episode['duration']
+				meta['title'] = f"{meta['show_name']} Marathon! S{next_episode['season_number']} E{next_episode['episode_number']}"
+			else:
+				meta['title'] = f"{meta['show_name']} S{next_episode['season_number']} E{next_episode['episode_number']}"
 
-			q = "INSERT INTO schedule (tv_episode_id, start_time, end_time, is_marathon) VALUES (%s, %s, %s, %s)"
-			cur.execute(q, (next_episode['id'], episode_start_time, episode_end_time, in_marathon*1))
+			q = (
+				"INSERT INTO schedule "
+				"(tv_episode_id, start_time, end_time, is_marathon, "
+				"title, description, path, thumbnail, "
+				"thumbnail_height, thumbnail_width) "
+				"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+			)
+			cur.execute(q, (
+				next_episode['id'], 
+				episode_start_time, 
+				episode_end_time, 
+				in_marathon*1,
+				meta['title'],
+				meta['description'],
+				next_episode['path'],
+				meta['thumbnail'],
+				meta['thumbnail_height'],
+				meta['thumbnail_width']
+			))
 
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
 			cur.execute(q, (next_episode['id'], next_episode['tv_show_id']))
@@ -205,7 +302,7 @@ class Scheduler:
 		cur = self._db.cursor(dictionary=True)
 		schedule_start = datetime.combine((datetime.now() - timedelta(days=1)).date(), dttime(0))
 		
-		q = "SELECT schedule.*, tv_episodes.season_number, tv_episodes.episode_number, tv_episodes.description AS episode_description, tv_shows.title AS show_title, tv_shows.description AS show_description, tv_shows.thumbnail, tv_shows.thumbnail_height, tv_shows.thumbnail_width FROM schedule LEFT JOIN tv_episodes ON schedule.tv_episode_id = tv_episodes.id LEFT JOIN tv_shows ON tv_episodes.tv_show_id = tv_shows.id WHERE schedule.start_time >= %s"
+		q = "SELECT * FROM schedule WHERE start_time >= %s"
 		cur.execute(q, (schedule_start, ))
 		schedule = cur.fetchall()
 
@@ -239,13 +336,9 @@ class Scheduler:
 
 			title_element = root.createElement("title")
 			title_element.setAttribute("lang", "en")
-			extra_title = ""
-			if s['is_marathon']:
-				extra_title = " Marathon!"
-			title = f"{s['show_title']}{extra_title} S{s['season_number']} E{s['episode_number']}"
-			title_element.appendChild(root.createTextNode(title))
+			title_element.appendChild(root.createTextNode(s['title']))
 
-			description = s['episode_description']
+			description = s['description']
 			if description is None:
 				description = "No description"
 			desc_element = root.createElement("desc")
@@ -271,35 +364,95 @@ class Scheduler:
 			f.write(xml_str)
 
 		cur.close()
+	
+	def fix(self):
+		cur = self._db.cursor(dictionary=True)
+		q = "SELECT * FROM schedule"
+		cur.execute(q)
+		schedule = cur.fetchall()
+
+		for s in schedule:
+			q = (
+				"SELECT tv_episodes.path, tv_episodes.description AS episode_desc, "
+				"tv_shows.thumbnail, tv_shows.thumbnail_height, "
+				"tv_shows.thumbnail_width, tv_shows.title, "
+				"tv_shows.description AS show_desc, tv_episodes.season_number, "
+				"tv_episodes.episode_number "
+				"FROM tv_episodes "
+				"LEFT JOIN tv_shows "
+				"ON tv_episodes.tv_show_id = tv_shows.id where tv_episodes.id = %s "
+				"LIMIT 1"
+			)
+			cur.execute(q, (s['tv_episode_id'],))
+			data = cur.fetchone()
+
+			title = f"{data['title']} S{data['season_number']} E{data['episode_number']}"
+			
+			q = (
+				"UPDATE schedule "
+				"SET title = %s, "
+				"description = %s, "
+				"path = %s, "
+				"thumbnail = %s, "
+				"thumbnail_height = %s, "
+				"thumbnail_width = %s "
+				"WHERE id = %s"
+			)
+			cur.execute(q, (
+				title, 
+				data['episode_desc'], 
+				data['path'], 
+				data['thumbnail'],
+				data['thumbnail_height'],
+				data['thumbnail_width'],
+				s['id']
+			))
+
+		self._db.commit()
+		cur.close()
 
 	def adjust_schedule_times(self):
 		cur = self._db.cursor(dictionary=True)
 
-		q = "SELECT * FROM schedule WHERE completed = 1 AND actual_end_time IS NOT NULL ORDER BY start_time DESC LIMIT 1"
+		q = (
+			"SELECT * "
+			"FROM schedule "
+			"WHERE completed = 1 "
+			"AND actual_end_time IS NOT NULL "
+			"ORDER BY start_time DESC "
+			"LIMIT 1"
+		)
 		cur.execute(q)
 		recent_finish = cur.fetchone()
 
 		if not recent_finish:
-			print("Nothing has every played?")
+			_print("Nothing has ever played?", LOG_LEVEL_ERROR)
 			cur.close()
 			return
 		
 		if recent_finish['end_time'] == recent_finish['actual_end_time']:
-			print("Times already match")
+			_print("Times already match", LOG_LEVEL_INFO)
 			cur.close()
 			return
 		
 		offset = (recent_finish['actual_end_time'] - recent_finish['end_time']).total_seconds()
-		print(f"Offset is {offset}s")
+		_print(f"Offset is {offset}s", LOG_LEVEL_INFO)
 
-		q = "SELECT * FROM schedule WHERE start_time > NOW() AND actual_start_time IS NULL AND completed = 0 ORDER BY start_time"
+		q = (
+			"SELECT * "
+			"FROM schedule "
+			"WHERE start_time > NOW() "
+			"AND actual_start_time IS NULL "
+			"AND completed = 0 "
+			"ORDER BY start_time"
+		)
 		cur.execute(q)
 		future_items = cur.fetchall()
 
 		previous = None
 		for schedule in future_items:
 			if previous and previous['end_time'] < schedule['start_time']:
-				print(f"Gap in schedule found at {schedule['start_time']}. No further adjustments made")
+				_print(f"Gap in schedule found at {schedule['start_time']}. No further adjustments made", LOG_LEVEL_INFO)
 				break
 			q = "UPDATE schedule SET start_time = %s, end_time = %s WHERE id = %s"
 			cur.execute(q, (
