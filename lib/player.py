@@ -30,6 +30,17 @@ class PlayerThread(threading.Thread):
 				_print('Queue is empty', LOG_LEVEL_ERROR)
 				continue
 
+			if to_play.get('schedule_start_time', None) is not None:
+				_print(f"Scheduled start time: {to_play['schedule_start_time']}", LOG_LEVEL_DEBUG)
+				offset = (to_play['schedule_start_time'] - datetime.now()).total_seconds()
+				_print(f"Offset is {offset}s", LOG_LEVEL_DEBUG)
+				if offset > 3600:
+					_print(f"Scheduled time more than 1 hour in the future ({offset}s)", LOG_LEVEL_ERROR)
+					_print("Something is likely wrong", LOG_LEVEL_ERROR)
+					_print("Waiting until scheduled time to resume", LOG_LEVEL_ERROR)
+					to_play['wait_until'] = to_play['schedule_start_time']
+			
+
 			ffmpeg_params = [
 				config.FFMPEG_PATH,
 				'-hwaccel_output_format', 'cuda',
@@ -152,6 +163,7 @@ class Player:
 		playlist_queue.put({
 			'id': starting_schedule['id'],
 			'path': starting_schedule['path'],
+			'schedule_start_time': starting_schedule['start_time'],
 			'skipto': skipto,
 			'audio_track': self._get_audio_track(starting_schedule['path']),
 			'video_track': self._get_video_track(starting_schedule['path'])
@@ -197,6 +209,7 @@ class Player:
 				playlist_queue.put({
 					'id': next_schedule['id'],
 					'path': next_schedule['path'],
+					'schedule_start_time': next_schedule['start_time'],
 					'wait_until': wait_until,
 					'audio_track': self._get_audio_track(next_schedule['path']),
 					'video_track': self._get_video_track(next_schedule['path'])
