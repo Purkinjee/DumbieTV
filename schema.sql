@@ -6,7 +6,7 @@ CREATE TABLE tv_shows (
 	description TEXT DEFAULT NULL,
 	thumbnail VARCHAR(255) DEFAULT NULL,
 	thumbnail_width INT NOT NULL DEFAULT 0,
-	thumnail_height INT NOT NULL DEFAULT 0,
+	thumbnail_height INT NOT NULL DEFAULT 0,
 	last_played_episode INT DEFAULT NULL,
 	verified TINYINT NOT NULL DEFAULT 0,
 	enabled TINYINT NOT NULL DEFAULT 0,
@@ -27,6 +27,25 @@ CREATE TABLE tv_episodes (
 	needs_update TINYINT NOT NULL DEFAULT 0,
 	last_updated DATETIME DEFAULT NULL,
 	transcoded TINYINT NOT NULL DEFAULT 0,
+	PRIMARY KEY (id)
+);
+CREATE INDEX idx_episode_path ON tv_episodes (path); 
+
+CREATE TABLE movies (
+	id INT NOT NULL AUTO_INCREMENT,
+	tvdb_id VARCHAR(50) NOT NULL,
+	path VARCHAR(255) NOT NULL,
+	title VARCHAR(255) NOT NULL,
+	description TEXT DEFAULT NULL,
+	duration INT NOT NULL,
+	thumbnail VARCHAR(255) DEFAULT NULL,
+	thumbnail_width INT NOT NULL DEFAULT 0,
+	thumbnail_height INT NOT NULL DEFAULT 0,
+	verified TINYINT NOT NULL DEFAULT 0,
+	enabled TINYINT NOT NULL DEFAULT 0,
+	needs_update TINYINT NOT NULL DEFAULT 0,
+	last_updated DATETIME DEFAULT NULL,
+	last_played DATETIME DEFAULT NULL,
 	PRIMARY KEY (id)
 );
 

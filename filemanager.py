@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse, sys
 
-from lib.meta import TVScanner
+from lib.meta import TVScanner, MovieScanner
 from lib.common import Logger, add_logger_args, get_logger_from_args
 
 if __name__ == "__main__":
@@ -9,7 +9,7 @@ if __name__ == "__main__":
 
 	parser.add_argument(
 		"--add-new-shows", 
-		help="Add shows to the databse that have not yet been added",
+		help="Add shows to the database that have not yet been added",
 		action="store_true"	
 	)
 	parser.add_argument(
@@ -37,6 +37,16 @@ if __name__ == "__main__":
 		help="Make sure last played episode is correct. Useful if the schedule has been manually edited",
 		action="store_true"
 	)
+	parser.add_argument(
+		"--add-new-movies",
+		help="Add movies to the database that have not yet been added",
+		action="store_true"
+	)
+	parser.add_argument(
+		"--update-movies",
+		help="Update movie metadata that needs to be updated or are stale",
+		action="store_true"
+	)
 	add_logger_args(parser)
 
 	args = parser.parse_args()
@@ -44,6 +54,7 @@ if __name__ == "__main__":
 	_print = logger._print
 
 	scanner = TVScanner(logger=logger)
+	movie_scanner = MovieScanner(logger=logger)
 
 	did_something = False
 	if args.add_new_shows:
@@ -78,6 +89,18 @@ if __name__ == "__main__":
 		_print("Cleaning up last played episodes...")
 		scanner.cleanup_last_played_episodes()
 		_print('Done!')
+		did_something = True
+
+	if args.add_new_movies:
+		_print("Adding new movies...")
+		movie_scanner.add_new_movies()
+		_print("Done!")
+		did_something = True
+	
+	if args.update_movies:
+		_print("Updating movies...")
+		movie_scanner.update_movies()
+		_print("Done!")
 		did_something = True
 	
 	if not did_something:

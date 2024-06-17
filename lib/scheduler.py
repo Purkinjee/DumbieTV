@@ -47,6 +47,22 @@ class Scheduler:
 		)
 		cur.execute(q, (last_played, ))
 		res = cur.fetchone()
+
+		## This is a bit of a hack. When episodes are changed on disk
+		## orphaned records are possibly created. For now just reset to first
+		## season and episode
+		if not res:
+			q = (
+                "SELECT * FROM tv_episodes "
+                "WHERE tv_show_id = %s "
+                "ORDER BY season_number, episode_number "
+                "LIMIT 1"
+            )
+			cur.execute(q, (tv_show_id, ))
+			next_episode = cur.fetchone()
+			cur.close()
+			return next_episode
+		## END HAX
 		last_season = res['season_number']
 		last_episode = res['episode_number']
 
@@ -88,7 +104,7 @@ class Scheduler:
 		cur.close()
 		return res
 
-	def build_schedule(self, date=datetime.now().date()+timedelta(days=1)):
+	def build_schedule(self, date=datetime.now().date()+timedelta(days=1), dry_run=False):
 		start_time = datetime.combine(date, dttime(0))
 		cur = self._db.cursor(dictionary=True)
 
@@ -101,7 +117,7 @@ class Scheduler:
 		cur.execute(q, (start_time, ))
 		schedule_end = cur.fetchone()
 
-		if schedule_end:
+		if schedule_end and not dry_run:
 			if schedule_end['end_time'].date() > date:
 				_print(f"Scheduled items already exist for {date}", LOG_LEVEL_ERROR)
 				cur.close()
@@ -150,6 +166,50 @@ class Scheduler:
 					'start': marathon_start,
 					'duration': marathon_duration
 				}
+
+		movies = []
+		if random.random() <= config.MOVIE_CHANCE:
+			q = (
+				"SELECT * FROM movies "
+				"WHERE enabled = 1 "
+				"ORDER BY RAND() "
+				"LIMIT 1"
+			)
+			cur.execute(q)
+			movie = cur.fetchone()
+
+			schedule_end_time = datetime.combine(date + timedelta(days=1), dttime(0))
+			time_left_in_day = (schedule_end_time - start_time).total_seconds()
+			movie_start = None
+			if marathon_show is not None:
+				time_before = marathon_data['start']
+				time_after = time_left_in_day - time_before - marathon_data['duration']
+
+				if time_before > movie['duration'] and time_after > movie['duration']:
+					if random.random() >= 0.5:
+						movie_start = random.randint(0, time_before - movie['duration'])
+					else:
+						movie_start = random.randint(marathon_data['start'] + marathon_data['duration'], time_left_in_day - movie['duration'])
+					
+				elif time_before > movie['duration']:
+					movie_start = random.randint(0, time_before - movie['duration'])
+				elif time_after > movie['duration']:
+					movie_start = random.randint(marathon_data['start'] + marathon_data['duration'], time_left_in_day - movie['duration'])
+				else:
+					_print("No time in day for movie (marathon day)", LOG_LEVEL_INFO)
+				
+			else:
+				if time_left_in_day > movie['duration']:
+					movie_start = random.randint(0, time_left_in_day - movie['duration'])
+				else:
+					_print("No time in day for movie", LOG_LEVEL_INFO)
+			
+			if movie_start:
+				movies.append({
+					'movie': movie,
+					'start_time': movie_start,
+					'scheduled': False
+				})
 
 		total_duration = 0
 		previous_show = None
@@ -242,6 +302,50 @@ class Scheduler:
 				current_show_repeats = 0
 				continue
 
+			## See if we should be playing a movie
+			movie_added = False
+			for movie in movies:
+				if movie['scheduled']:
+					continue
+				if total_duration + next_episode['duration'] > movie['start_time']:
+					movie_start_time = start_time + timedelta(seconds=total_duration)
+					movie_end_time = start_time + timedelta(seconds=(total_duration + movie['movie']['duration']))
+					q = (
+						"INSERT INTO schedule "
+						"(start_time, end_time, "
+						"title, description, path, thumbnail, "
+						"thumbnail_height, thumbnail_width) "
+						"VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+					)
+					cur.execute(q, (
+						movie_start_time,
+						movie_end_time,
+						movie['movie']['title'],
+						movie['movie']['description'],
+						movie['movie']['path'],
+						movie['movie']['thumbnail'],
+						movie['movie']['thumbnail_width'],
+						movie['movie']['thumbnail_height']
+					))
+
+					q = (
+						"UPDATE movies "
+						"SET last_played = %s "
+						"WHERE id = %s"
+					)
+					cur.execute(q, (movie_start_time, movie['movie']['id']))
+
+					total_duration += movie['movie']['duration']
+					movie['scheduled'] = True
+					movie_added = True
+					_print(f"[MOVIE] {movie_start_time}-{movie_end_time} {movie['movie']['title']}", LOG_LEVEL_DEBUG)
+					if not dry_run:
+						self._db.commit()
+					break
+			if movie_added:
+				continue
+				
+
 			## If we are in a marathon and this one exceeds the timer, go back to normal
 			if in_marathon and marathon_timer + next_episode['duration'] > marathon_data['duration']:
 				in_marathon = False
@@ -277,13 +381,12 @@ class Scheduler:
 
 			q = (
 				"INSERT INTO schedule "
-				"(tv_episode_id, start_time, end_time, is_marathon, "
+				"(start_time, end_time, is_marathon, "
 				"title, description, path, thumbnail, "
 				"thumbnail_height, thumbnail_width) "
-				"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+				"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
 			)
 			cur.execute(q, (
-				next_episode['id'], 
 				episode_start_time, 
 				episode_end_time, 
 				in_marathon*1,
@@ -297,7 +400,14 @@ class Scheduler:
 
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
 			cur.execute(q, (next_episode['id'], next_episode['tv_show_id']))
-			self._db.commit()
+
+			if not in_marathon:
+				_print(f"[TV SHOW] {episode_start_time}-{episode_end_time} {meta['title']}", LOG_LEVEL_DEBUG)
+			else:
+				_print(f"[MARATHON] {episode_start_time}-{episode_end_time} {meta['title']}", LOG_LEVEL_DEBUG)
+
+			if not dry_run:
+				self._db.commit()
 
 			if episode_end_time.date() > date:
 				break
@@ -332,8 +442,8 @@ class Scheduler:
 
 		for s in schedule:
 			tz = pytz.timezone(config.TIMEZONE)
-			start_aware = tz.localize(s['start_time'])
-			end_aware = tz.localize(s['end_time'])
+			start_aware = tz.localize(s['start_time'] + timedelta(seconds=30))
+			end_aware = tz.localize(s['end_time'] + timedelta(seconds=30))
 
 			program_element = root.createElement('programme')
 			program_element.setAttribute("start", start_aware.strftime("%Y%m%d%H%M%S %z"))

@@ -30,6 +30,11 @@ if __name__ == "__main__":
 		help="Adjust future listings based off actual end times of shows",
 		action="store_true"
 	)
+	parser.add_argument(
+		"--dry-run",
+		help="Don't save schedule to DB",
+		action="store_true"
+	)
 	add_logger_args(parser)
 
 	args = parser.parse_args()
@@ -54,11 +59,17 @@ if __name__ == "__main__":
 				sys.exit()
 			
 			_print(f"Creating schedule for {args.date}...")
-			scheduler.build_schedule(date=date)
+			if args.dry_run:
+				scheduler.build_schedule(date=date, dry_run=True)
+			else:
+				scheduler.build_schedule(date=date)
 		
 		else:
 			_print("Creating schedule...")
-			scheduler.build_schedule()
+			if args.dry_run:
+				scheduler.build_schedule(dry_run=True)
+			else:
+				scheduler.build_schedule()
 		_print("Done!")
 		did_something = True
 

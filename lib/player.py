@@ -56,7 +56,7 @@ class PlayerThread(threading.Thread):
 				'-ar', '44100',
 				'-b:a', "256k",
 				'-ac', "1",
-				'-map', "0:0",
+				'-map', f"0:{to_play.get('video_track', '0')}",
 				'-map', f"0:{to_play.get('audio_track', '1')}",
 				'-f', 'flv',
 				config.RTMP_POST
@@ -148,11 +148,13 @@ class Player:
 				skipto = gap
 
 		_print(f"Skipping {skipto}s of first show", LOG_LEVEL_DEBUG)
+
 		playlist_queue.put({
 			'id': starting_schedule['id'],
 			'path': starting_schedule['path'],
 			'skipto': skipto,
-			'audio_track': self._get_audio_track(starting_schedule['path'])
+			'audio_track': self._get_audio_track(starting_schedule['path']),
+			'video_track': self._get_video_track(starting_schedule['path'])
 		})
 
 		pt = PlayerThread(playlist_queue, completed_queue)
@@ -196,7 +198,8 @@ class Player:
 					'id': next_schedule['id'],
 					'path': next_schedule['path'],
 					'wait_until': wait_until,
-					'audio_track': self._get_audio_track(next_schedule['path'])
+					'audio_track': self._get_audio_track(next_schedule['path']),
+					'video_track': self._get_video_track(next_schedule['path'])
 				})
 				previous_played = next_schedule
 
@@ -219,21 +222,53 @@ class Player:
 			stderr=subprocess.PIPE
 		)
 
-		process.wait()
+		#process.wait()
 		data, err = process.communicate()
-		audio_track = 1
+		#print(data)
+		audio_tracks = []
 		if process.returncode == 0:
 			output = json.loads(data.decode('utf-8'))
 
 			for stream in output.get('streams', []):
 				if stream.get('codec_type') != 'audio':
 					continue
+				audio_tracks.append(stream['index'])
 				if stream.get('tags', {}).get('language', '').lower() == 'eng':
 					_print(f"Found audio track for {file_path} ({stream['index']})", LOG_LEVEL_DEBUG)
-					audio_track = stream['index']
-					break
+					return stream['index']
 		
-		return audio_track
+		if len(audio_tracks) > 0:
+			_print(f"No audio track found tagged eng for {file_path}. Using {audio_tracks[0]}", LOG_LEVEL_DEBUG)
+			return audio_tracks[0]
+		
+		_print(f"No audio track found for {file_path}", LOG_LEVEL_ERROR)
+		return 1
+
+	def _get_video_track(self, file_path):
+		ffprobe_params = [
+			config.FFPROBE_PATH,
+			'-hide_banner', '-show_streams',
+			'-print_format', 'json',
+			file_path
+		]
+		process = subprocess.Popen(
+			ffprobe_params, 
+			stdout=subprocess.PIPE,
+			stderr=subprocess.PIPE
+		)
+
+		#process.wait()
+		data, err = process.communicate()
+		if process.returncode == 0:
+			output = json.loads(data.decode('utf-8'))
+
+			for stream in output.get('streams', []):
+				if stream.get('codec_type') == 'video':
+					_print(f"Found video track for {file_path} ({stream['index']})", LOG_LEVEL_DEBUG)
+					return stream['index']
+		
+		_print(f"No video track found for {file_path}", LOG_LEVEL_ERROR)
+		return 0
 
 	def _handle_completed(self, completed_queue):
 		db = get_mysql_connection()
