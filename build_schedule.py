@@ -35,6 +35,11 @@ if __name__ == "__main__":
 		help="Don't save schedule to DB",
 		action="store_true"
 	)
+	parser.add_argument(
+		"--purge",
+		help="Purge schedule keeping ARG days",
+		type=int
+	)
 	add_logger_args(parser)
 
 	args = parser.parse_args()
@@ -77,6 +82,13 @@ if __name__ == "__main__":
 		_print("Generating XMLTV...")
 		scheduler.generate_xmltv(config.XMLTV_LOCATION)
 		_print("Done!")
+		did_something = True
+	
+	if args.purge:
+		if args.dry_run:
+			scheduler.purge_old(history_days=args.purge, dry_run=True)
+		else:
+			scheduler.purge_old(history_days=args.purge)
 		did_something = True
 
 	if not did_something:

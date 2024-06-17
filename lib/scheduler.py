@@ -480,6 +480,34 @@ class Scheduler:
 			f.write(xml_str)
 
 		cur.close()
+
+	def purge_old(self, history_days=14, dry_run=False):
+		cur = self._db.cursor(dictionary=True)
+
+		purge_prior = datetime.now() - timedelta(days=history_days)
+		_print(f"Purging schedule prior to {purge_prior}", LOG_LEVEL_INFO)
+
+		q = (
+			"SELECT * FROM schedule "
+			"WHERE end_time < %s"
+		)
+		cur.execute(q, (purge_prior, ))
+		res = cur.fetchall()
+		
+		_print(f"{len(res)} records to purge...", LOG_LEVEL_INFO)
+
+		if dry_run:
+			_print("No records purged", LOG_LEVEL_INFO)
+		else:
+			q = (
+				"DELETE FROM schedule "
+				"WHERE end_time < %s"
+			)
+			cur.execute(q, (purge_prior, ))
+			_print("Purged!", LOG_LEVEL_INFO)
+		
+		self._db.commit()
+		cur.close()
 	
 	def fix(self):
 		cur = self._db.cursor(dictionary=True)
