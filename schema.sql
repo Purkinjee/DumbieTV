@@ -55,6 +55,7 @@ CREATE TABLE schedule (
 	title VARCHAR(255) DEFAULT NULL,
 	description TEXT DEFAULT NULL,
 	path VARCHAR(255) NOT NULL,
+	tag VARCHAR(255) NOT NULL,
 	thumbnail VARCHAR(255) DEFAULT NULL,
 	thumbnail_width INT NOT NULL DEFAULT 0,
 	thumbnail_height INT NOT NULL DEFAULT 0,

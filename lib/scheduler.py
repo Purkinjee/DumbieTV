@@ -314,8 +314,8 @@ class Scheduler:
 						"INSERT INTO schedule "
 						"(start_time, end_time, "
 						"title, description, path, thumbnail, "
-						"thumbnail_height, thumbnail_width) "
-						"VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+						"thumbnail_height, thumbnail_width, tag) "
+						"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'MOVIE')"
 					)
 					cur.execute(q, (
 						movie_start_time,
@@ -383,8 +383,8 @@ class Scheduler:
 				"INSERT INTO schedule "
 				"(start_time, end_time, is_marathon, "
 				"title, description, path, thumbnail, "
-				"thumbnail_height, thumbnail_width) "
-				"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+				"thumbnail_height, thumbnail_width, tag) "
+				"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 			)
 			cur.execute(q, (
 				episode_start_time, 
@@ -395,7 +395,8 @@ class Scheduler:
 				next_episode['path'],
 				meta['thumbnail'],
 				meta['thumbnail_height'],
-				meta['thumbnail_width']
+				meta['thumbnail_width'],
+				'TV_MARATHON' if in_marathon else 'TV_EPISODE'
 			))
 
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"

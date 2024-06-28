@@ -6,6 +6,7 @@ CHANNEL_NAME = "My Channel"
 CHANNEL_NUMBER = "1"
 CHANNEL_ICON = ''
 TIMEZONE = "US/Pacific"
+AUDIO_LANG = "eng"
 
 FFMPEG_PATH = "/usr/local/bin/ffmpeg"
 FFPROBE_PATH = "/usr/local/bin/ffprobe"

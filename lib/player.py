@@ -239,6 +239,7 @@ class Player:
 		data, err = process.communicate()
 		#print(data)
 		audio_tracks = []
+		preferred_lang_tracks = []
 		if process.returncode == 0:
 			output = json.loads(data.decode('utf-8'))
 
@@ -246,12 +247,19 @@ class Player:
 				if stream.get('codec_type') != 'audio':
 					continue
 				audio_tracks.append(stream['index'])
-				if stream.get('tags', {}).get('language', '').lower() == 'eng':
-					_print(f"Found audio track for {file_path} ({stream['index']})", LOG_LEVEL_DEBUG)
-					return stream['index']
+				if stream.get('tags', {}).get('language', '').lower() == config.AUDIO_LANG:
+					if stream.get('codec_name') in ['ac3', 'aac']:
+						_print(f"Found {stream['codec_name']} {config.AUDIO_LANG} audio track for {file_path} ({stream['index']})", LOG_LEVEL_DEBUG)
+						return stream['index']
+					preferred_lang_tracks.append(stream)
+		
+		if len(preferred_lang_tracks) > 0:
+			_print("No ac3/aac audio track found. Using first track for preferred language:", LOG_LEVEL_DEBUG)
+			_print(f"  codec: {preferred_lang_tracks[0]['codec_name']} track: {preferred_lang_tracks[0]['index']}", LOG_LEVEL_DEBUG)
+			return preferred_lang_tracks[0]['index']
 		
 		if len(audio_tracks) > 0:
-			_print(f"No audio track found tagged eng for {file_path}. Using {audio_tracks[0]}", LOG_LEVEL_DEBUG)
+			_print(f"No audio track found tagged {config.AUDIO_LANG} for {file_path}. Using {audio_tracks[0]}", LOG_LEVEL_DEBUG)
 			return audio_tracks[0]
 		
 		_print(f"No audio track found for {file_path}", LOG_LEVEL_ERROR)
