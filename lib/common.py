@@ -61,7 +61,6 @@ def get_logger_from_args(args):
 class Logger:
 	def __init__(self, log_level=LOG_LEVEL_INFO, stdout=True, file=None):
 		self.log_level = log_level
-		self.log_level = 100
 		self.stdout = stdout
 		self.log_file = file
 
