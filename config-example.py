@@ -12,6 +12,10 @@ AUDIO_LANG = "eng"
 FFMPEG_PATH = "/usr/local/bin/ffmpeg"
 FFPROBE_PATH = "/usr/local/bin/ffprobe"
 
+INTERMISSION_RESOURCE_PATH = "/path"
+INTERMISSION_OUTPUT_PATH = "/path/output"
+INTERMISSION_INTERVAL = 0
+
 TV_SHOW_DIR = "/path/to/tvshows"
 XMLTV_LOCATION = "/path/to/xmltv"
 
@@ -25,3 +29,4 @@ MYSQL_USER = "dumbietv"
 RTMP_POST = 'rtmp://localhost/live/stream'
 
 MARATHON_CHANCE = 0.15
+MOVIE_CHANCE = 0.6
