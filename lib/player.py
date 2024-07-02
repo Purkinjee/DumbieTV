@@ -51,23 +51,31 @@ class PlayerThread(threading.Thread):
 					'-ss', str(to_play['skipto'])
 				]
 			
-			vf = (
-				'scale=1920:1080:force_original_aspect_ratio=decrease,'
-				'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,'
-				'setsar=1,'
-				'format=yuv420p'
+			ffmpeg_params += ['-i', to_play['path']]
+
+			filters = (
+				f'[0:v:{to_play.get("video_track", "0")}]scale=1920:1080:force_original_aspect_ratio=decrease[v],'
+				'[v]pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v],'
+				'[v]setsar=1[v],'
+				'[v]format=yuv420p[v]'
 			)
+
+			if config.WATERMARK:
+				ffmpeg_params += ['-i', config.WATERMARK]
+				filters += (
+					',[1:v]format=rgba,colorchannelmixer=aa=0.5[overlay],'
+					'[v][overlay]overlay=(main_w-overlay_w)-30:(main_h-overlay_h)-30[v]'
+				)
 			ffmpeg_params += [
-				'-i', to_play['path'],
 				'-c:v', 'h264_nvenc',
-				'-vf', vf,
+				'-filter_complex', filters,
 				'-pix_fmt', 'yuv420p',
 				'-r', '30000/1001',
 				'-c:a', 'aac',
 				'-ar', '44100',
 				'-b:a', "256k",
 				'-ac', "1",
-				'-map', f"0:{to_play.get('video_track', '0')}",
+				'-map', '[v]',
 				'-map', f"0:{to_play.get('audio_track', '1')}",
 				'-f', 'flv',
 				config.RTMP_POST
@@ -127,6 +135,7 @@ class Player:
 			"SELECT * FROM schedule "
 			"WHERE start_time <= NOW() "
 			"AND end_time > NOW() "
+			"AND path IS NOT NULL "
 			"ORDER BY start_time "
 			"LIMIT 1"
 		)
@@ -137,6 +146,7 @@ class Player:
 			q = (
 				"SELECT * FROM schedule "
 				"WHERE start_time >= NOW() "
+				"AND path IS NOT NULL "
 				"ORDER BY start_time "
 				"LIMIT 1"
 			)
@@ -190,6 +200,7 @@ class Player:
 					"SELECT * FROM schedule "
 					"WHERE start_time > "
 						"(SELECT start_time FROM schedule WHERE id = %s) "
+					"AND path IS NOT NULL "
 					"ORDER BY start_time "
 					"LIMIT 1"
 				)
@@ -248,7 +259,7 @@ class Player:
 					continue
 				audio_tracks.append(stream['index'])
 				if stream.get('tags', {}).get('language', '').lower() == config.AUDIO_LANG:
-					if stream.get('codec_name') in ['ac3', 'aac']:
+					if stream.get('codec_name') in ['dts', 'ac3', 'aac']:
 						_print(f"Found {stream['codec_name']} {config.AUDIO_LANG} audio track for {file_path} ({stream['index']})", LOG_LEVEL_DEBUG)
 						return stream['index']
 					preferred_lang_tracks.append(stream)

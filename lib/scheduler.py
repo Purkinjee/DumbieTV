@@ -218,7 +218,25 @@ class Scheduler:
 		current_show_id = None
 		in_marathon = False
 		marathon_timer = 0
+		intermission_counter = 0
 		while True:
+			if config.INTERMISSION_INTERVAL > 0:
+				if intermission_counter >= config.INTERMISSION_INTERVAL:
+					intermission_start_time = start_time + timedelta(seconds=total_duration)
+					intermission_end_time = start_time + timedelta(seconds=(total_duration + 180))
+					q = (
+						"INSERT INTO schedule "
+						"(start_time, end_time, title, path, tag) "
+						"VALUES (%s, %s, 'Intermission', NULL, 'INTERMISSION')"
+					)
+					cur.execute(q, (
+						intermission_start_time,
+						intermission_end_time
+					))
+					intermission_counter = 0
+					total_duration += 180
+					_print(f"[INTERMISSION] {intermission_start_time}-{intermission_end_time}", LOG_LEVEL_DEBUG)
+
 			if current_show_id is None or current_show_counter >= current_show_repeats and not in_marathon:
 				current_show_counter = 0
 				current_show_repeats = 0
@@ -343,6 +361,7 @@ class Scheduler:
 						self._db.commit()
 					break
 			if movie_added:
+				intermission_counter += 1
 				continue
 				
 
@@ -401,6 +420,7 @@ class Scheduler:
 
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
 			cur.execute(q, (next_episode['id'], next_episode['tv_show_id']))
+			intermission_counter += 1
 
 			if not in_marathon:
 				_print(f"[TV SHOW] {episode_start_time}-{episode_end_time} {meta['title']}", LOG_LEVEL_DEBUG)
