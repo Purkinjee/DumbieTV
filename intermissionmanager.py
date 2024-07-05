@@ -13,6 +13,11 @@ if __name__ == "__main__":
 		action="store_true"
 	)
 	parser.add_argument(
+		"--regenerate-existing",
+		help="Recreate videos if they already exist",
+		action="store_true"
+	)
+	parser.add_argument(
 		"--cleanup-old",
 		help="Clean up old intermission videos",
 		action="store_true"
@@ -30,7 +35,10 @@ if __name__ == "__main__":
 
 	if args.create_future_intermissions:
 		_print("Creating future intermissions...")
-		intermission.generate_all_future_intermissions()
+		if args.regenerate_existing:
+			intermission.generate_all_future_intermissions(regenerate_existing = True)
+		else:
+			intermission.generate_all_future_intermissions()
 		_print("Done!")
 		did_something = True
 
@@ -44,7 +52,7 @@ if __name__ == "__main__":
 		print("Nothing to do!")
 		print(f"Use {sys.argv[0]} --help")
 
-	#intermission.generate_intermission_video(12166)
+	#intermission.generate_intermission_video(12435)
 	#print(intermission.generate_voiceover_text(12166))
 	#intermission._generate_speech_pyt2s(12166)
 	#intermission._generate_audio_track(11980)

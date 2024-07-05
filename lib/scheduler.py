@@ -211,6 +211,21 @@ class Scheduler:
 					'scheduled': False
 				})
 
+		q = (
+			"SELECT end_time "
+			"FROM schedule "
+			"WHERE end_time <= %s "
+			"AND tag = 'INTERMISSION' "
+			"ORDER BY end_time DESC "
+			"LIMIT 1"
+		)
+		cur.execute(q, (start_time, ))
+		prev_intermission = cur.fetchone()
+		if prev_intermission:
+			last_intermission = prev_intermission['end_time']
+		else:
+			last_intermission = start_time - timedelta(days=1)
+
 		total_duration = 0
 		previous_show = None
 		current_show_counter = 0
@@ -218,10 +233,13 @@ class Scheduler:
 		current_show_id = None
 		in_marathon = False
 		marathon_timer = 0
-		intermission_counter = 0
+		#intermission_counter = 0
 		while True:
-			if config.INTERMISSION_INTERVAL > 0:
-				if intermission_counter >= config.INTERMISSION_INTERVAL:
+			if config.INTERMISSION_INTERVAL_MINUTES > 0:
+				#min_since_intermission = (total_duration - last_intermission)/60.0
+				min_since_intermission = ((start_time + timedelta(seconds=total_duration)) - last_intermission).total_seconds() / 60.0
+				if min_since_intermission > config.INTERMISSION_INTERVAL_MINUTES:
+				#if intermission_counter >= config.INTERMISSION_INTERVAL:
 					intermission_start_time = start_time + timedelta(seconds=total_duration)
 					intermission_end_time = start_time + timedelta(seconds=(total_duration + 180))
 					q = (
@@ -233,8 +251,9 @@ class Scheduler:
 						intermission_start_time,
 						intermission_end_time
 					))
-					intermission_counter = 0
+					#intermission_counter = 0
 					total_duration += 180
+					last_intermission = start_time + timedelta(seconds=(total_duration + 180))
 					_print(f"[INTERMISSION] {intermission_start_time}-{intermission_end_time}", LOG_LEVEL_DEBUG)
 
 			if current_show_id is None or current_show_counter >= current_show_repeats and not in_marathon:
@@ -361,7 +380,7 @@ class Scheduler:
 						self._db.commit()
 					break
 			if movie_added:
-				intermission_counter += 1
+				#intermission_counter += 1
 				continue
 				
 
@@ -420,7 +439,7 @@ class Scheduler:
 
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
 			cur.execute(q, (next_episode['id'], next_episode['tv_show_id']))
-			intermission_counter += 1
+			#intermission_counter += 1
 
 			if not in_marathon:
 				_print(f"[TV SHOW] {episode_start_time}-{episode_end_time} {meta['title']}", LOG_LEVEL_DEBUG)

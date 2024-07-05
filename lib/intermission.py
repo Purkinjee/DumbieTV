@@ -35,16 +35,25 @@ class Intermission:
 	def close(self):
 		pass
 
-	def generate_all_future_intermissions(self):
+	def generate_all_future_intermissions(self, regenerate_existing=False):
 		db = get_mysql_connection()
 		cur = db.cursor(dictionary=True)
 
-		q = (
+		if regenerate_existing:
+			q = (
 			"SELECT * FROM schedule "
 			"WHERE start_time > %s "
 			"AND tag = 'INTERMISSION' "
-			"AND path IS NULL"
-		)
+			"ORDER BY start_time"
+			)
+		else:
+			q = (
+				"SELECT * FROM schedule "
+				"WHERE start_time > %s "
+				"AND tag = 'INTERMISSION' "
+				"AND path IS NULL "
+				"ORDER BY start_time"
+			)
 		cur.execute(q, (datetime.now(), ))
 		intermissions = cur.fetchall()
 		_print(f"Need to generate {len(intermissions)} intermission(s)", LOG_LEVEL_INFO)
@@ -193,10 +202,12 @@ class Intermission:
 			y_pos += 100
 
 		intermission_file = os.path.join(config.INTERMISSION_OUTPUT_PATH, 'complete/', f"{intermission_schedule['id']}.mp4")
+		background_video_file = random.choice(os.listdir(os.path.join(config.INTERMISSION_RESOURCE_PATH, 'backgrounds/')))
+		background_video_file = os.path.join(config.INTERMISSION_RESOURCE_PATH, 'backgrounds/', background_video_file)
 		ffmpeg_params = [
 			config.FFMPEG_PATH,
 			'-hwaccel_output_format', 'cuda',
-			'-i', os.path.join(config.INTERMISSION_RESOURCE_PATH, 'background.mp4'),
+			'-i', background_video_file,
 			'-i', audio_track,
 			'-vf', filters,
 			'-c:v', 'h264_nvenc',
@@ -394,7 +405,16 @@ class Intermission:
 		cur.close()
 		db.close()
 
-		voiceover_str = "Time to stretch your legs, get a new snack and beer, and take a little break. But don't worry, there's more coming up on dumbie TV! " + voiceover_str.strip() + "."
+		intros = [
+			"Time to stretch your legs, get a new snack and beer, and take a little break. But don't worry, there's more coming up on dumbie TV! ",
+			"It's intermission time so go pee and do whatever you need to do. There is more coming up though. ",
+			"Do you need a new beer? I think you need a new beer. Dumbie up in here with some more shows. ",
+			"Wassup this is Dumbie. I hacked your TV to tell you I need a new beer. Get me a beer and I'll play these shows. ",
+			"Get up. Work that butt. Move that butt. Arms! Arms! Legs! Legs! Yeah! Yeah! ",
+			"Please insert your credit card to play more TV. ",
+		]
+
+		voiceover_str = random.choice(intros) + voiceover_str.strip() + "."
 		
 		return voiceover_str
 	
@@ -434,15 +454,18 @@ class Intermission:
 
 		vo_start = 5000
 		vo_end = 5000 + len(vo_audio)
-		while vo_end < len(background_audio):
-			first_segment = background_audio[:vo_start]
+		while vo_end < (len(background_audio) + 10000):
+			first_segment = background_audio[:vo_start].fade(to_gain=-16, duration=1000, end=vo_start)
 			vo_segment = background_audio[vo_start:vo_end] - 16
-			end_segment = background_audio[vo_end:]
+			end_segment = background_audio[vo_end:].fade(from_gain=-16, duration=1000, start=0)
 			background_audio = first_segment + vo_segment + end_segment
 
 			background_audio = background_audio.overlay(vo_audio, position=vo_start)
-			vo_start = vo_start + (45*1000)
-			vo_end = vo_end + (45*1000)
+			vo_start = vo_start + (75*1000)
+			vo_end = vo_end + (75*1000)
+		
+		background_audio = background_audio - 4
+		background_audio = background_audio.fade_out(6000)
 
 		export_file = os.path.join(config.INTERMISSION_OUTPUT_PATH, 'audio_tracks/', f'{schedule_id}.wav')
 		background_audio.export(export_file, format="wav")

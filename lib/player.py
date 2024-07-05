@@ -12,6 +12,8 @@ import config
 
 _print = Logger()._print
 
+OVERLAY_FONT = os.path.join(config.INTERMISSION_RESOURCE_PATH, 'fonts/SairaCondensed-Regular.ttf')
+OVERLAY_FONT_BOLD = os.path.join(config.INTERMISSION_RESOURCE_PATH, 'fonts/SairaCondensed-SemiBold.ttf')
 class PlayerThread(threading.Thread):
 	def __init__(self, playlist_queue, completed_queue):
 		threading.Thread.__init__(self)
@@ -40,7 +42,7 @@ class PlayerThread(threading.Thread):
 					_print("Waiting until scheduled time to resume", LOG_LEVEL_ERROR)
 					to_play['wait_until'] = to_play['schedule_start_time']
 			
-
+			inputs = 0
 			ffmpeg_params = [
 				config.FFMPEG_PATH,
 				'-hwaccel_output_format', 'cuda',
@@ -52,6 +54,7 @@ class PlayerThread(threading.Thread):
 				]
 			
 			ffmpeg_params += ['-i', to_play['path']]
+			inputs += 1
 
 			filters = (
 				f'[0:v:{to_play.get("video_track", "0")}]scale=1920:1080:force_original_aspect_ratio=decrease[v],'
@@ -62,10 +65,53 @@ class PlayerThread(threading.Thread):
 
 			if config.WATERMARK:
 				ffmpeg_params += ['-i', config.WATERMARK]
+				inputs += 1
+				input_index = inputs - 1
 				filters += (
-					',[1:v]format=rgba,colorchannelmixer=aa=0.5[overlay],'
+					f',[{input_index}:v]format=rgba,colorchannelmixer=aa=0.5[overlay],'
 					'[v][overlay]overlay=(main_w-overlay_w)-30:(main_h-overlay_h)-30[v]'
 				)
+			
+			if to_play.get('tag') == 'INTERMISSION':
+				duration = int((to_play['schedule_end_time'] - to_play['schedule_start_time']).total_seconds())
+				if offset:
+					duration += offset
+					if duration < 60:
+						duration = 60
+				if to_play.get('skipto'):
+					duration = duration - int(to_play['skipto'])
+				countdown_input = (
+					f'color=color=#00000000@0:size=550x150:duration={duration},'
+					"format=rgba,"
+					"drawtext="
+						f"fontfile={OVERLAY_FONT_BOLD}:"
+						"fontsize=90:"
+						"fontcolor=white:"
+						f"text='%{{eif\:({duration}-t)/60\:d\:1}}\:%{{eif\:mod({duration}-t,60)\:d\:2}}':"
+						"x=(w-text_w)/2:y=(h-text_h)"
+				)
+				ffmpeg_params += [
+					'-f', 'lavfi', 
+					'-i', countdown_input
+				]
+				inputs += 1
+
+				input_index = inputs - 1
+				filters += (
+					f',[v][{input_index}]overlay=0:(main_h-150-30)[v]'
+				)
+
+			
+			if (to_play.get('tag') == 'INTERMISSION' 
+				and to_play.get('skipto') is None 
+				and to_play.get('wait_until') is None 
+				and offset):
+				intermission_time = 180 + offset
+				if intermission_time < 60:
+					intermission_time = 60
+				ffmpeg_params += ['-t', str(intermission_time)]
+				_print(f'Using intermission to adjust schedule. Intermission time set to {intermission_time}s', LOG_LEVEL_DEBUG)
+			
 			ffmpeg_params += [
 				'-c:v', 'h264_nvenc',
 				'-filter_complex', filters,
@@ -174,7 +220,9 @@ class Player:
 			'id': starting_schedule['id'],
 			'path': starting_schedule['path'],
 			'schedule_start_time': starting_schedule['start_time'],
+			'schedule_end_time': starting_schedule['end_time'],
 			'skipto': skipto,
+			'tag': starting_schedule['tag'],
 			'audio_track': self._get_audio_track(starting_schedule['path']),
 			'video_track': self._get_video_track(starting_schedule['path'])
 		})
@@ -221,7 +269,9 @@ class Player:
 					'id': next_schedule['id'],
 					'path': next_schedule['path'],
 					'schedule_start_time': next_schedule['start_time'],
+					'schedule_end_time': next_schedule['end_time'],
 					'wait_until': wait_until,
+					'tag': next_schedule['tag'],
 					'audio_track': self._get_audio_track(next_schedule['path']),
 					'video_track': self._get_video_track(next_schedule['path'])
 				})
