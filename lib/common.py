@@ -4,6 +4,7 @@ from PIL import Image
 from io import BytesIO
 from datetime import datetime
 import os
+import subprocess
 
 import config
 from lib.vars import *
@@ -85,4 +86,9 @@ class Logger:
 			
 		if self.stdout:
 			print(messagef)
+
+		if level == LOG_LEVEL_ERROR and config.ERROR_CMD and config.ERROR_CMD_MSG:
+			msg = config.ERROR_CMD_MSG.format(error = messagef)
+			subprocess.run(config.ERROR_CMD + [msg])
+
 		

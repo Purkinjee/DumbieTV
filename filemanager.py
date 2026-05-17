@@ -47,6 +47,16 @@ if __name__ == "__main__":
 		help="Update movie metadata that needs to be updated or are stale",
 		action="store_true"
 	)
+	parser.add_argument(
+		"--verify-movie-files",
+		help="Verify that no files have moved or changed in the movie directory",
+		action="store_true"
+	)
+	parser.add_argument(
+		"--add-air-dates",
+		help="Add airdates to TV shows",
+		action="store_true"
+	)
 	add_logger_args(parser)
 
 	args = parser.parse_args()
@@ -91,6 +101,12 @@ if __name__ == "__main__":
 		_print('Done!')
 		did_something = True
 
+	if args.verify_movie_files:
+		_print("Verifying movie files...")
+		movie_scanner.check_movie_files()
+		_print("Done!")
+		did_something = True
+
 	if args.add_new_movies:
 		_print("Adding new movies...")
 		movie_scanner.add_new_movies()
@@ -100,6 +116,12 @@ if __name__ == "__main__":
 	if args.update_movies:
 		_print("Updating movies...")
 		movie_scanner.update_movies()
+		_print("Done!")
+		did_something = True
+
+	if args.add_air_dates:
+		_print("Adding aired dates...")
+		scanner.add_air_dates()
 		_print("Done!")
 		did_something = True
 	

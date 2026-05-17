@@ -267,16 +267,21 @@ class Scheduler:
 					'thumbnail_height': 0,
 					'thumbnail_width': 0
 				}
+				past_check_time = start_time - timedelta(hours=48)
 				if previous_show is None:
 					if marathon_show is None:
 						q = (
-							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
+							"SELECT tv_shows.id, tv_shows.title, tv_shows.thumbnail, "
+							"tv_shows.thumbnail_width, tv_shows.thumbnail_height, "
+								"(SELECT COUNT(playlog.id) "
+								"FROM playlog "
+								"WHERE tv_show_id = tv_shows.id "
+								"AND played_time >= %s) AS playcount "
 							"FROM tv_shows "
-							"WHERE enabled = 1 "
-							"ORDER BY RAND() "
-							"LIMIT 1"
+							"WHERE tv_shows.enabled = 1 "
+							"ORDER BY playcount DESC"
 						)
-						cur.execute(q)
+						cur.execute(q, (past_check_time, ))
 					else:
 						q = (
 							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
@@ -290,26 +295,43 @@ class Scheduler:
 				else:
 					if marathon_show is None:
 						q = (
-							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
+							"SELECT tv_shows.id, tv_shows.title, tv_shows.thumbnail, "
+							"tv_shows.thumbnail_width, tv_shows.thumbnail_height, "
+								"(SELECT COUNT(playlog.id) "
+								"FROM playlog "
+								"WHERE tv_show_id = tv_shows.id "
+								"AND played_time >= %s) AS playcount "
 							"FROM tv_shows "
-							"WHERE enabled = 1 "
-							"AND id != %s "
-							"ORDER BY RAND() "
-							"LIMIT 1"
+							"WHERE tv_shows.enabled = 1 "
+							"AND tv_shows.id != %s "
+							"ORDER BY playcount DESC"
 						)
-						cur.execute(q, (previous_show, ))
+						cur.execute(q, (past_check_time, previous_show))
 					else:
 						q = (
-							"SELECT id, title, thumbnail, thumbnail_width, thumbnail_height "
+							"SELECT tv_shows.id, tv_shows.title, tv_shows.thumbnail, "
+							"tv_shows.thumbnail_width, tv_shows.thumbnail_height, "
+								"(SELECT COUNT(playlog.id) "
+								"FROM playlog "
+								"WHERE tv_show_id = tv_shows.id "
+								"AND played_time >= %s) AS playcount "
 							"FROM tv_shows "
-							"WHERE enabled = 1 "
-							"AND id != %s "
-							"AND id != %s "
-							"ORDER BY RAND() "
-							"LIMIT 1"
+							"WHERE tv_shows.enabled = 1 "
+							"AND tv_shows.id != %s "
+							"AND tv_shows.id != %s "
+							"ORDER BY playcount DESC"
 						)
-						cur.execute(q, (previous_show, marathon_show['id']))
-				res = cur.fetchone()
+						cur.execute(q, (past_check_time, previous_show, marathon_show['id']))
+				res = cur.fetchall()
+				if len(res) == 1:
+					res = res[0]
+				else:
+					_print('Randomizing show choice...', LOG_LEVEL_DEBUG)
+					base = res[0]['playcount'] + 1
+					weights = [base - r['playcount'] for r in res]
+					names = [r['title'] for r in res]
+					res = random.choices(res, weights=weights)[0]
+
 				current_show_id = res['id']
 				meta['show_name'] = res['title']
 				meta['thumbnail'] = res['thumbnail']
@@ -389,7 +411,12 @@ class Scheduler:
 				in_marathon = False
 				continue
 
-			meta['description'] = next_episode['description']
+			desc = next_episode['description'] if next_episode['description'] else ""
+			if next_episode.get('airdate') is not None:
+				aired_str = next_episode['airdate'].strftime('%m/%d/%Y')
+				desc = f"Aired {aired_str}\r\n{desc}"
+
+			meta['description'] = desc
 			
 			if current_show_counter >= current_show_repeats:
 				current_show_counter = 0
@@ -436,6 +463,13 @@ class Scheduler:
 				meta['thumbnail_width'],
 				'TV_MARATHON' if in_marathon else 'TV_EPISODE'
 			))
+
+			q = (
+				"INSERT INTO playlog "
+				"(tv_show_id, played_time) "
+				"VALUES (%s, %s)"
+			)
+			cur.execute(q, (next_episode['tv_show_id'], episode_start_time))
 
 			q = "UPDATE tv_shows SET last_played_episode = %s WHERE id = %s"
 			cur.execute(q, (next_episode['id'], next_episode['tv_show_id']))
@@ -511,6 +545,14 @@ class Scheduler:
 				icon_element.setAttribute('width', str(s['thumbnail_width']))
 				icon_element.setAttribute('height', str(s['thumbnail_height']))
 				program_element.appendChild(icon_element)
+
+			category = "show"
+			if s['tag'].lower() == 'movie':
+				category = 'movie'
+			cat_element = root.createElement('category')
+			cat_element.setAttribute("lang", "en")
+			cat_element.appendChild(root.createTextNode(category))
+			program_element.appendChild(cat_element)
 
 			tv_element.appendChild(program_element)
 

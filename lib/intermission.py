@@ -6,8 +6,9 @@ import re
 
 import pyht
 from gtts import gTTS
-from pyt2s.services import ibm_watson
+from pyt2s.services import ibm_watson, cepstral, stream_elements, oddcast
 from pydub import AudioSegment
+from pydub.effects import speedup
 
 from lib.common import get_mysql_connection, Logger
 from lib.vars import *
@@ -100,7 +101,8 @@ class Intermission:
 		_print(f"{len(old)} intermission videos need to be removed", LOG_LEVEL_INFO)
 
 		for s in old:
-			os.remove(s['path'])
+			if os.path.exists(s['path']):
+				os.remove(s['path'])
 			q = (
 				"UPDATE schedule "
 				"SET path = NULL "
@@ -113,7 +115,8 @@ class Intermission:
 		db.close()
 
 	def generate_intermission_video(self, schedule_id):
-		voiceover_file = self._generate_speech_pyt2s(schedule_id)
+		#voiceover_file = self._generate_speech_pyt2s(schedule_id)
+		voiceover_file = self._generate_speech_gtts(schedule_id)
 		if not voiceover_file:
 			_print("Error generating speech. Aborting video creation", LOG_LEVEL_ERROR)
 			return
@@ -412,6 +415,10 @@ class Intermission:
 			"Wassup this is Dumbie. I hacked your TV to tell you I need a new beer. Get me a beer and I'll play these shows. ",
 			"Get up. Work that butt. Move that butt. Arms! Arms! Legs! Legs! Yeah! Yeah! ",
 			"Please insert your credit card to play more TV. ",
+			"That show sucked. I hope the next one is better. ",
+			"Don't you have anything better to do than watch this stupid channel? "
+			"Dumbie TV. Stolen shows all day every day. "
+			
 		]
 
 		voiceover_str = random.choice(intros) + voiceover_str.strip() + "."
@@ -420,9 +427,17 @@ class Intermission:
 	
 	def _generate_speech_pyt2s(self, schedule_id):
 		_print(f"Generating speech for {schedule_id}", LOG_LEVEL_DEBUG)
-		data = ibm_watson.requestTTS(
+		# data = ibm_watson.requestTTS(
+		# 	self.generate_voiceover_text(schedule_id),
+		# 	ibm_watson.Voice.en_US_LisaExpressive.value
+		# )
+		#data = stream_elements.requestTTS(
+		# 	self.generate_voiceover_text(schedule_id),
+		# 	stream_elements.Voice.Amy.value
+		# )
+		data = oddcast.requestTTS(
 			self.generate_voiceover_text(schedule_id),
-			ibm_watson.Voice.en_US_LisaExpressive.value
+			'3-3-1'
 		)
 		export_file = os.path.join(config.INTERMISSION_OUTPUT_PATH, "tts/", f"{schedule_id}.mp3")
 		with open(export_file, "wb") as file:
@@ -431,8 +446,11 @@ class Intermission:
 		return export_file
 
 	def _generate_speech_gtts(self, schedule_id):
+		_print(f"Generating speech using gTTS for {schedule_id}", LOG_LEVEL_DEBUG)
 		tts = gTTS(text=self.generate_voiceover_text(schedule_id), lang="en", slow=False)
-		tts.save(os.path.join(config.INTERMISSION_OUTPUT_PATH, f"{schedule_id}.mp3"))
+		export_file = os.path.join(config.INTERMISSION_OUTPUT_PATH, f"{schedule_id}.mp3")
+		tts.save(export_file)
+		return export_file
 
 	def _generate_audio_track(self, schedule_id, voiceover_file):
 		_print(f"Generating audio track for {schedule_id}", LOG_LEVEL_DEBUG)
@@ -450,7 +468,8 @@ class Intermission:
 			_print(f'Voiceover audio file ({voiceover_file}) does not exist', LOG_LEVEL_ERROR)
 			return False
 
-		vo_audio = AudioSegment.from_file(voiceover_file, vo_file_type)
+		vo_audio = AudioSegment.from_file(voiceover_file, vo_file_type) + 10
+		vo_audio = speedup(vo_audio, playback_speed=1.2)
 
 		vo_start = 5000
 		vo_end = 5000 + len(vo_audio)

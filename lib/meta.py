@@ -2,7 +2,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from imdb import Cinemagoer
 import tvdb_v4_official
@@ -106,7 +106,7 @@ class MovieScanner(MetadataMixin):
 				res['tvdb_id'],
 				movie_file,
 				res['name'],
-				res['overview'],
+				res.get('overview', ''),
 				duration,
 				res.get('thumbnail', None),
 				thumbnail_width,
@@ -116,6 +116,58 @@ class MovieScanner(MetadataMixin):
 			self._db.commit()
 			_print(f"Added movie {res['name']}", LOG_LEVEL_INFO)	
 
+		cur.close()
+
+	def check_movie_files(self):
+		cur = self._db.cursor(dictionary=True)
+		q = "SELECT id, path FROM movies"
+		cur.execute(q)
+		movies = cur.fetchall()
+
+		for movie in movies:
+			if os.path.exists(movie['path']):
+				continue
+			
+			_print(f"Movie File Missing: {movie['path']}", LOG_LEVEL_INFO)
+			movie_dir = os.path.dirname(movie['path'])
+			if not os.path.exists(movie_dir):
+				## DIR DOESN"T EXIST. REMOVE MOVIE
+				_print(f"Movie directory missing: {movie_dir}", LOG_LEVEL_INFO)
+				q = "DELETE FROM movies WHERE id = %s"
+				cur.execute(q, (movie['id']))
+				q = "DELETE FROM schedule WHERE path = %s AND start_time >= NOW()"
+				cur.execute(q, (movie['path'],))
+				continue
+
+			movie_file = self.largest_file_in_dir(movie_dir)
+			if movie_file is not None:
+				movie_size = self.get_file_size_mb(movie_file)
+				if movie_size < 500:
+					## MOVIE IS TOO SMALL, DO NOT ADD
+					_print(f"Movie is under 500MB ({movie_size}), skipping...", LOG_LEVEL_DEBUG)
+					q = "DELETE FROM movies WHERE id = %s"
+					cur.execute(q, (movie['id'],))
+					q = "DELETE FROM schedule WHERE path = %s AND start_time >= NOW()"
+					cur.execute(q, (movie['path'],))
+					continue
+				q = "SELECT id FROM movies WHERE path = %s"
+				cur.execute(q, (movie_file, ))
+				existing = cur.fetchone()
+				if existing:
+					## MOVIE ALREADY GOT ADDED SOMEWHERE ELSE
+					_print(f"Movie seems to exist in a separate record. Updating schedule items...", LOG_LEVEL_INFO)
+					q = "DELETE FROM movies WHERE id = %s"
+					cur.execute(q, (movie['id'],))
+					q = "UPDATE schedule SET path = %s WHERE path = %s AND start_time >= NOW()"
+					cur.execute(q, (movie_file, movie['path']))
+				else:
+					## UPDATE MOVIE RECORD AND MATCHING SCHEDULE ITEMS
+					_print(f"Replacement found! Updating records", LOG_LEVEL_INFO)
+					q = "UPDATE movies SET path = %s WHERE id = %s"
+					cur.execute(q, (movie_file, movie['id']))
+					q = "UPDATE schedule SET path = %s WHERE path = %s AND start_time >= NOW()"
+					cur.execute(q, (movie_file, movie['path']))
+		self._db.commit()
 		cur.close()
 
 	def update_movies(self, movie_id=None):
@@ -341,6 +393,8 @@ class TVScanner(MetadataMixin):
 					if not this_episode:
 						_print(f"Could not match {file} to any episode. Skippping...", LOG_LEVEL_INFO)
 						continue
+					
+					airdate = date.fromisoformat(this_episode['aired'])
 
 					q = (
 						"INSERT INTO tv_episodes "
@@ -351,8 +405,9 @@ class TVScanner(MetadataMixin):
 						"season_number, "
 						"episode_number, "
 						"description, "
+						"airdate, "
 						"last_updated) "
-						"values (%s, %s, %s, %s, %s, %s, %s, %s)"
+						"values (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
 					)
 					cur.execute(q, (
 						r['id'],
@@ -362,9 +417,37 @@ class TVScanner(MetadataMixin):
 						season_number,
 						episode_number,
 						this_episode['overview'],
+						airdate,
 						datetime.now()
 					))
 					self._db.commit()
+
+		cur.close()
+
+	def add_air_dates(self):
+		cur = self._db.cursor(dictionary=True)
+		q = "SELECT id, tvdb_id FROM tv_episodes WHERE airdate IS NULL"
+		cur.execute(q)
+
+		episodes = cur.fetchall()
+		tvdb = tvdb_v4_official.TVDB(config.TVDB_API_KEY)
+		total = len(episodes)
+		pos = 1
+
+		for e in episodes:
+			_print(f"{pos}/{total}", LOG_LEVEL_INFO)
+			data = tvdb.get_episode(e['tvdb_id'])
+			if data['aired'] is None:
+				continue
+			airdate = date.fromisoformat(data['aired'])
+			q = (
+				"UPDATE tv_episodes "
+				"SET airdate = %s "
+				"WHERE id = %s"
+			)
+			cur.execute(q, (airdate, e['id']))
+			self._db.commit()
+			pos += 1
 
 		cur.close()
 

@@ -23,6 +23,7 @@ CREATE TABLE tv_episodes (
 	duration INT NOT NULL,
 	season_number INT NOT NULL,
 	episode_number INT NOT NULL,
+	airdate DATE DEFAULT NULL,
 	description TEXT DEFAULT NULL,
 	needs_update TINYINT NOT NULL DEFAULT 0,
 	last_updated DATETIME DEFAULT NULL,
@@ -65,5 +66,12 @@ CREATE TABLE schedule (
 	actual_end_time DATETIME DEFAULT NULL,
 	completed TINYINT NOT NULL DEFAULT 0,
 	is_marathon TINYINT NOT NULL DEFAULT 0,
+	PRIMARY KEY (id)
+);
+
+CREATE TABLE playlog (
+	id INT NOT NULL AUTO_INCREMENT,
+	tv_show_id INT NOT NULL,
+	played_time DATETIME NOT NULL,
 	PRIMARY KEY (id)
 );

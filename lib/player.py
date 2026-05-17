@@ -15,7 +15,7 @@ _print = Logger()._print
 OVERLAY_FONT = os.path.join(config.INTERMISSION_RESOURCE_PATH, 'fonts/SairaCondensed-Regular.ttf')
 OVERLAY_FONT_BOLD = os.path.join(config.INTERMISSION_RESOURCE_PATH, 'fonts/SairaCondensed-SemiBold.ttf')
 class PlayerThread(threading.Thread):
-	def __init__(self, playlist_queue, completed_queue):
+	def __init__(self, playlist_queue, completed_queue, verbose=False):
 		threading.Thread.__init__(self)
 
 		self.playlist_queue = playlist_queue
@@ -23,6 +23,7 @@ class PlayerThread(threading.Thread):
 
 		self._keep_listening = True
 		self._ffmpeg_process = None
+		self.verbose = verbose
 	
 	def run(self):
 		while self._keep_listening:
@@ -32,7 +33,8 @@ class PlayerThread(threading.Thread):
 				_print('Queue is empty', LOG_LEVEL_ERROR)
 				continue
 
-			if to_play.get('schedule_start_time', None) is not None:
+			offset = None
+			if to_play.get('schedule_start_time', None) is not None and to_play.get('skipto') is None:
 				_print(f"Scheduled start time: {to_play['schedule_start_time']}", LOG_LEVEL_DEBUG)
 				offset = (to_play['schedule_start_time'] - datetime.now()).total_seconds()
 				_print(f"Offset is {offset}s", LOG_LEVEL_DEBUG)
@@ -41,6 +43,15 @@ class PlayerThread(threading.Thread):
 					_print("Something is likely wrong", LOG_LEVEL_ERROR)
 					_print("Waiting until scheduled time to resume", LOG_LEVEL_ERROR)
 					to_play['wait_until'] = to_play['schedule_start_time']
+			
+			if to_play.get('wait_until', None) is not None:
+				now = datetime.now()
+				if to_play['wait_until'] > now:
+					seconds_to_wait = (to_play['wait_until'] - now).total_seconds()
+					_print(f"Thread was told to wait for {seconds_to_wait}s", LOG_LEVEL_INFO)
+					time.sleep(seconds_to_wait)
+					_print(f"Done Waiting", LOG_LEVEL_INFO)
+					offset = (to_play['schedule_start_time'] - datetime.now()).total_seconds()
 			
 			inputs = 0
 			ffmpeg_params = [
@@ -57,7 +68,8 @@ class PlayerThread(threading.Thread):
 			inputs += 1
 
 			filters = (
-				f'[0:v:{to_play.get("video_track", "0")}]scale=1920:1080:force_original_aspect_ratio=decrease[v],'
+				f'[0:{to_play.get("video_track", "0")}]sidedata=delete[v],'
+				'[v]scale=1920:1080:force_original_aspect_ratio=decrease[v],'
 				'[v]pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v],'
 				'[v]setsar=1[v],'
 				'[v]format=yuv420p[v]'
@@ -76,10 +88,16 @@ class PlayerThread(threading.Thread):
 				duration = int((to_play['schedule_end_time'] - to_play['schedule_start_time']).total_seconds())
 				if offset:
 					duration += offset
+					## Intermission must play for at least 60s and at most 3.5min
+					## Ideally this will be 3min but we make adjustments to compensate for 
+					## schedule being off
 					if duration < 60:
 						duration = 60
+					if duration > 210:
+						duration = 210
 				if to_play.get('skipto'):
 					duration = duration - int(to_play['skipto'])
+
 				countdown_input = (
 					f'color=color=#00000000@0:size=550x150:duration={duration},'
 					"format=rgba,"
@@ -89,29 +107,21 @@ class PlayerThread(threading.Thread):
 						"fontcolor=white:"
 						f"text='%{{eif\:({duration}-t)/60\:d\:1}}\:%{{eif\:mod({duration}-t,60)\:d\:2}}':"
 						"x=(w-text_w)/2:y=(h-text_h)"
-				)
+					)
 				ffmpeg_params += [
 					'-f', 'lavfi', 
-					'-i', countdown_input
+					'-i', countdown_input,
+					'-t', str(duration)
 				]
 				inputs += 1
+
+				_print(f"Playing intermission for {duration}s to correct schedule.", LOG_LEVEL_DEBUG)
 
 				input_index = inputs - 1
 				filters += (
 					f',[v][{input_index}]overlay=0:(main_h-150-30)[v]'
 				)
 
-			
-			if (to_play.get('tag') == 'INTERMISSION' 
-				and to_play.get('skipto') is None 
-				and to_play.get('wait_until') is None 
-				and offset):
-				intermission_time = 180 + offset
-				if intermission_time < 60:
-					intermission_time = 60
-				ffmpeg_params += ['-t', str(intermission_time)]
-				_print(f'Using intermission to adjust schedule. Intermission time set to {intermission_time}s', LOG_LEVEL_DEBUG)
-			
 			ffmpeg_params += [
 				'-c:v', 'h264_nvenc',
 				'-filter_complex', filters,
@@ -127,24 +137,20 @@ class PlayerThread(threading.Thread):
 				config.RTMP_POST
 			]
 
-			if to_play.get('wait_until', None) is not None:
-				now = datetime.now()
-				if to_play['wait_until'] > now:
-					seconds_to_wait = (to_play['wait_until'] - now).total_seconds()
-					_print(f"Thread was told to wait for {seconds_to_wait}s", LOG_LEVEL_INFO)
-					time.sleep(seconds_to_wait)
-
 			self.completed_queue.put({
 				'id': to_play['id'],
 				'start_time': datetime.now()
 			})
 			
 			_print(f"Playing {to_play['path']}", LOG_LEVEL_INFO)
-			self._ffmpeg_process = subprocess.Popen(
-				ffmpeg_params, 
-				stdout=subprocess.DEVNULL, 
-				stderr=subprocess.STDOUT
-			)
+			if self.verbose:
+				self._ffmpeg_process = subprocess.Popen(ffmpeg_params)
+			else:
+				self._ffmpeg_process = subprocess.Popen(
+					ffmpeg_params, 
+					stdout=subprocess.DEVNULL, 
+					stderr=subprocess.STDOUT
+				)
 			#self._ffmpeg_process = subprocess.Popen(ffmpeg_params)
 			while self._ffmpeg_process.poll() is None:
 				time.sleep(1)
@@ -171,22 +177,45 @@ class Player:
 	def close(self):
 		pass
 	
-	def play(self):
+	def play(self, force_schedule_id=None, verbose=False):
 		db = get_mysql_connection()
 		cur = db.cursor(dictionary=True)
 		playlist_queue = queue.Queue()
 		completed_queue = queue.Queue()
 
-		q = (
-			"SELECT * FROM schedule "
-			"WHERE start_time <= NOW() "
-			"AND end_time > NOW() "
-			"AND path IS NOT NULL "
-			"ORDER BY start_time "
-			"LIMIT 1"
-		)
-		cur.execute(q)
-		starting_schedule = cur.fetchone()
+		if force_schedule_id is not None:
+			q = (
+				"SELECT * FROM schedule "
+				"WHERE id = %s "
+				"AND path IS NOT NULL "
+				"LIMIT 1"
+			)
+			cur.execute(q, (force_schedule_id,))
+			starting_schedule = cur.fetchone()
+			if not starting_schedule:
+				_print(f"Could not find schedule id: {force_schedule_id}", LOG_LEVEL_ERROR)
+				return
+		else:
+			q = (
+				"SELECT * FROM schedule "
+				"WHERE start_time <= NOW() "
+				"AND end_time > NOW() "
+				"AND path IS NOT NULL "
+				"ORDER BY start_time "
+				"LIMIT 1"
+			)
+			cur.execute(q)
+			starting_schedule = cur.fetchone()
+
+			if starting_schedule:
+				q = (
+					"UPDATE schedule "
+					"SET actual_start_time = NULL, "
+					"actual_end_time = NULL "
+					"WHERE start_time > %s"
+				)
+				cur.execute(q, (starting_schedule['start_time'],))
+				db.commit()
 
 		if not starting_schedule:
 			q = (
@@ -209,12 +238,12 @@ class Player:
 				time.sleep(to_wait)
 
 		skipto = None
-		if starting_schedule['start_time'] < datetime.now():
+		if force_schedule_id is None and starting_schedule['start_time'] < datetime.now():
 			gap = (datetime.now() - starting_schedule['start_time']).total_seconds()
 			if gap > 0:
 				skipto = gap
 
-		_print(f"Skipping {skipto}s of first show", LOG_LEVEL_DEBUG)
+				_print(f"Skipping {skipto}s of first show", LOG_LEVEL_DEBUG)
 
 		playlist_queue.put({
 			'id': starting_schedule['id'],
@@ -227,8 +256,12 @@ class Player:
 			'video_track': self._get_video_track(starting_schedule['path'])
 		})
 
-		pt = PlayerThread(playlist_queue, completed_queue)
+		pt = PlayerThread(playlist_queue, completed_queue, verbose=verbose)
 		pt.start()
+
+		if force_schedule_id is not None:
+			pt.join()
+			return
 
 		previous_played = starting_schedule
 		cur.close()
@@ -309,7 +342,7 @@ class Player:
 					continue
 				audio_tracks.append(stream['index'])
 				if stream.get('tags', {}).get('language', '').lower() == config.AUDIO_LANG:
-					if stream.get('codec_name') in ['dts', 'ac3', 'aac']:
+					if stream.get('codec_name') in ['truehd', 'dts', 'ac3', 'aac']:
 						_print(f"Found {stream['codec_name']} {config.AUDIO_LANG} audio track for {file_path} ({stream['index']})", LOG_LEVEL_DEBUG)
 						return stream['index']
 					preferred_lang_tracks.append(stream)
@@ -354,7 +387,7 @@ class Player:
 
 	def _handle_completed(self, completed_queue):
 		db = get_mysql_connection()
-		cur = db.cursor()
+		cur = db.cursor(dictionary=True)
 		while True:
 			try:
 				completed = completed_queue.get(block=False)
@@ -380,6 +413,24 @@ class Player:
 						completed['end_time'],
 						completed['id']
 					))
+					q = (
+						"SELECT * FROM schedule "
+						"WHERE id = %s "
+						"LIMIT 1"
+					)
+					cur.execute(q, (completed['id'],))
+					updated = cur.fetchone()
+					if not updated['actual_start_time']:
+						_print(f"No start time exists for completed schedule item ({updated['id']})", LOG_LEVEL_ERROR)
+					else:
+						runtime = (updated['actual_end_time'] - updated['actual_start_time']).total_seconds()
+						expected = (updated['end_time'] - updated['start_time']).total_seconds()
+						diff = runtime - expected
+						if abs(diff) > 300:
+							_print(f"Schedule item ({updated['id']}) did not meet expected runtime", LOG_LEVEL_ERROR)
+							_print(f"Expected: {expected}s, Actual: {runtime}s", LOG_LEVEL_ERROR)
+						else:
+							_print(f"Expected duration {expected}s, actual {runtime}s")
 				db.commit()
 
 			except queue.Empty:
